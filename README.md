@@ -4,11 +4,15 @@
 [![27 tests](https://img.shields.io/badge/tests-27-brightgreen)](https://github.com/coreystevensdev/steambot/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
-SteamBot is an agentic NFL betting research service that finds closing line value before the market closes. It pulls sharp-book lines from Pinnacle via The Odds API, strips the vig to compute no-vig fair probabilities, then uses Claude to surface picks where retail prices are measurably better than the sharp-market consensus. A LangGraph human-in-the-loop checkpoint requires user approval before any bet slip is prepared.
+Agentic NFL betting research service that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared.
 
-**Problem:** Retail sports bettors lose because they bet off public lines that already carry bookmaker margin. Closing Line Value (CLV) is the market-validated signal that separates long-run winners from losers: if you consistently beat the closing line, you have genuine edge. No public tool automates this research pipeline end-to-end with HITL approval built in.
+## Problem
 
-**Architecture interest:** The graph uses LangGraph's `interrupt()` primitive to pause execution at the approval step. State is persisted via `PostgresSaver`, so the approval session survives a server restart. CLV is recorded post-settlement for every pick, giving a backtestable track record.
+Retail sports bettors lose because they bet off public lines that already carry bookmaker margin. Closing Line Value (CLV) is the market-validated signal that separates long-run winners from losers: if you consistently beat the closing line, you have genuine edge. No public tool automates this research pipeline end-to-end with HITL approval built in.
+
+## Solution
+
+The pipeline runs as a LangGraph StateGraph: fetch Pinnacle odds, strip vig to no-vig fair probabilities for each side, filter picks by a minimum edge threshold, then call Claude with a forced `submit_picks` tool to generate structured pick candidates. An `interrupt()` checkpoint pauses the graph for user approval before any bet slip is finalized. State persists via `PostgresSaver` so approval sessions survive server restarts. CLV is recorded post-settlement for every approved pick, building a backtestable track record.
 
 ---
 
