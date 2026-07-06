@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/coreystevensdev/steambot/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/steambot/actions)
 [![27 tests](https://img.shields.io/badge/tests-27-brightgreen)](https://github.com/coreystevensdev/steambot/actions)
+[![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 SteamBot is an agentic NFL betting research service that finds closing line value before the market closes. It pulls sharp-book lines from Pinnacle via The Odds API, strips the vig to compute no-vig fair probabilities, then uses Claude to surface picks where retail prices are measurably better than the sharp-market consensus. A LangGraph human-in-the-loop checkpoint requires user approval before any bet slip is prepared.
 
@@ -95,6 +96,36 @@ curl -s -X POST http://localhost:8000/api/runs/{run_id}/approve \
 pip install -e ".[dev]"
 pytest -q
 ```
+
+---
+
+## Eval harness
+
+`eval/dataset.jsonl` contains 18 golden test cases that verify the deterministic math layer independently of the LLM. Run without API keys:
+
+```bash
+pip install -e ".[dev]"
+python -m eval
+```
+
+Output:
+```
+vig_removal          5/5  [#####]
+ev_calculation       4/4  [####]
+clv_calculation      3/3  [###]
+edge_filter          3/3  [###]
+structural           3/3  [###]
+
+Total: 18/18 passed  pass rate: 100.0%
+```
+
+To write a JSON report:
+
+```bash
+python -m eval --out eval/report.json
+```
+
+**What is tested:** vig removal accuracy (symmetric and asymmetric markets), EV formula correctness for favorites and underdogs, CLV sign convention (positive = beat the closing line), edge filter threshold compliance, and pick structural validity (required fields, confidence enum, non-negative edge). The harness imports directly from `steambot.state` so any change to the production math functions fails the eval immediately.
 
 ---
 

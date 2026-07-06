@@ -1,0 +1,279 @@
+{
+  "total": 18,
+  "passed": 18,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "by_category": {
+    "vig_removal": {
+      "passed": 5,
+      "failed": 0
+    },
+    "ev_calculation": {
+      "passed": 4,
+      "failed": 0
+    },
+    "clv_calculation": {
+      "passed": 3,
+      "failed": 0
+    },
+    "edge_filter": {
+      "passed": 3,
+      "failed": 0
+    },
+    "structural": {
+      "passed": 3,
+      "failed": 0
+    }
+  },
+  "cases": [
+    {
+      "id": "vig-01",
+      "category": "vig_removal",
+      "description": "Symmetric -110/-110 spread: each side should be exactly 50%",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed": [
+          0.5,
+          0.5
+        ],
+        "expected": [
+          0.5,
+          0.5
+        ],
+        "errors": [
+          0.0,
+          0.0
+        ],
+        "sum": 1.0
+      }
+    },
+    {
+      "id": "vig-02",
+      "category": "vig_removal",
+      "description": "NFL moneyline -170/+155: favorite gets ~61.6%",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed": [
+          0.6162046908315565,
+          0.38379530916844345
+        ],
+        "expected": [
+          0.6162,
+          0.3838
+        ],
+        "errors": [
+          4.690831556519726e-06,
+          4.690831556519726e-06
+        ],
+        "sum": 1.0
+      }
+    },
+    {
+      "id": "vig-03",
+      "category": "vig_removal",
+      "description": "Heavy favorite -200/+175",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed": [
+          0.6470588235294118,
+          0.35294117647058826
+        ],
+        "expected": [
+          0.6471,
+          0.3529
+        ],
+        "errors": [
+          4.117647058821117e-05,
+          4.117647058826668e-05
+        ],
+        "sum": 1.0
+      }
+    },
+    {
+      "id": "vig-04",
+      "category": "vig_removal",
+      "description": "Totals market O/U with -115/-105 (asymmetric vig)",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed": [
+          0.5108342361863488,
+          0.4891657638136511
+        ],
+        "expected": [
+          0.5108,
+          0.4892
+        ],
+        "errors": [
+          3.4236186348790554e-05,
+          3.4236186348901576e-05
+        ],
+        "sum": 1.0
+      }
+    },
+    {
+      "id": "vig-05",
+      "category": "vig_removal",
+      "description": "Ratio preservation: no-vig must preserve relative probability ratio",
+      "passed": true,
+      "error": null,
+      "details": {
+        "ratio_raw": 1.1869565217391305,
+        "ratio_fair": 1.1869565217391305
+      }
+    },
+    {
+      "id": "ev-01",
+      "category": "ev_calculation",
+      "description": "Positive EV: fair 53.0% at -108 (line has genuine value)",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_ev": 0.020740740740740782,
+        "expected_ev": 0.0207
+      }
+    },
+    {
+      "id": "ev-02",
+      "category": "ev_calculation",
+      "description": "Negative EV: fair 50.0% at -110 (no-vig even-money costs a half-point of juice)",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_ev": -0.04545454545454547,
+        "expected_ev": -0.0455
+      }
+    },
+    {
+      "id": "ev-03",
+      "category": "ev_calculation",
+      "description": "Dog with edge: fair 60.0% at +140 (strong positive EV)",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_ev": 0.43999999999999995,
+        "expected_ev": 0.44
+      }
+    },
+    {
+      "id": "ev-04",
+      "category": "ev_calculation",
+      "description": "Breakeven check: fair prob that equals implied prob should have EV near zero",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_ev": -1.8181818181750575e-05,
+        "expected_ev": "~0"
+      }
+    },
+    {
+      "id": "clv-01",
+      "category": "clv_calculation",
+      "description": "Positive CLV: bet at fair 52%, closes at fair 55% (found value before market moved)",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_clv": 0.030000000000000027,
+        "expected_clv": 0.03
+      }
+    },
+    {
+      "id": "clv-02",
+      "category": "clv_calculation",
+      "description": "Negative CLV: bet at fair 55%, closes at fair 50% (market disagreed)",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_clv": -0.050000000000000044,
+        "expected_clv": -0.05
+      }
+    },
+    {
+      "id": "clv-03",
+      "category": "clv_calculation",
+      "description": "Zero CLV: bet and close at same fair prob",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_clv": 0.0,
+        "expected_clv": 0.0
+      }
+    },
+    {
+      "id": "edge-01",
+      "category": "edge_filter",
+      "description": "Above threshold: fair 54.5% vs implied 51.9% at -108 gives 2.6% edge",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_edge": 0.025769230769230766,
+        "expected_edge": 0.026,
+        "passes_filter": true,
+        "expected_filter": true
+      }
+    },
+    {
+      "id": "edge-02",
+      "category": "edge_filter",
+      "description": "Below threshold: fair 51.5% vs implied 52.4% at -110 is negative edge, filtered",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_edge": -0.008809523809523823,
+        "expected_edge": -0.009,
+        "passes_filter": false,
+        "expected_filter": false
+      }
+    },
+    {
+      "id": "edge-03",
+      "category": "edge_filter",
+      "description": "Above threshold: edge ~2.1% at -110 (0.5440 blended - 0.5238 implied) passes filter",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_edge": 0.020190476190476203,
+        "expected_edge": null,
+        "passes_filter": true,
+        "expected_filter": true
+      }
+    },
+    {
+      "id": "struct-01",
+      "category": "structural",
+      "description": "Valid pick candidate: all required fields, positive edge, valid confidence enum",
+      "passed": true,
+      "error": null,
+      "details": {
+        "missing_fields": [],
+        "bad_confidence": false,
+        "negative_edge": false
+      }
+    },
+    {
+      "id": "struct-02",
+      "category": "structural",
+      "description": "Invalid confidence value should fail schema validation",
+      "passed": true,
+      "error": null,
+      "details": {
+        "reason": "confidence not in [high, medium, low]",
+        "caught": true
+      }
+    },
+    {
+      "id": "struct-03",
+      "category": "structural",
+      "description": "Edge and implied prob must be consistent: edge_pct = blended - implied",
+      "passed": true,
+      "error": null,
+      "details": {
+        "computed_edge": 0.026000000000000023,
+        "stated_edge": 0.026
+      }
+    }
+  ]
+}
