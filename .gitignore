@@ -9,6 +9,7 @@ dist/
 eval/results.json
 _bmad-output/
 _bmad/
+docs/superpowers/
 *_explained.md
 CLAUDE.md
 AGENTS.md
