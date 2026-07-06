@@ -10,6 +10,7 @@ POST /api/stripe/webhook      -- Stripe subscription events
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from datetime import date, datetime, timezone
@@ -17,11 +18,16 @@ from datetime import date, datetime, timezone
 import stripe
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from langgraph.errors import GraphInterrupt
 
 from steambot.api.main import get_graph, get_http_client
+from steambot.db.models import User
+from steambot.db.session import get_session_factory
 from steambot.state import ApprovedPick, PickCandidate, SteamBotState
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -183,13 +189,30 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
+    customer_id: str | None = None
+    grant: bool | None = None
     if event["type"] == "customer.subscription.created":
         customer_id = event["data"]["object"]["customer"]
-        # Mark user as Pro in DB (requires user lookup by stripe_customer_id).
-        pass
+        grant = True
     elif event["type"] == "customer.subscription.deleted":
         customer_id = event["data"]["object"]["customer"]
-        # Revoke Pro access.
-        pass
+        grant = False
+
+    if customer_id is not None and grant is not None:
+        factory = get_session_factory()
+        async with factory() as session:
+            result = await session.execute(
+                select(User).where(User.stripe_customer_id == customer_id)
+            )
+            user = result.scalar_one_or_none()
+            if user:
+                user.is_pro = grant
+                await session.commit()
+            else:
+                logger.warning(
+                    "stripe: no user found for customer_id=%r on event=%s",
+                    customer_id,
+                    event["type"],
+                )
 
     return {"received": True}
