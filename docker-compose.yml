@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sharpline
+      POSTGRES_USER: sharpline
+      POSTGRES_PASSWORD: sharpline
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://sharpline:sharpline@db:5432/sharpline
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ODDS_API_KEY: ${ODDS_API_KEY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
