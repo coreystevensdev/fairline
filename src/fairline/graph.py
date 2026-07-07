@@ -4,6 +4,9 @@ Topology:
   odds_agent
       |
       v (error?) --> END
+  weather_agent
+      |
+      v
   sim_agent
       |
       v
@@ -39,6 +42,7 @@ from fairline.agents.pick import pick_agent
 from fairline.agents.validate import validate_agent
 from fairline.state import ApprovedPick, FairlineState
 from fairline.sim import sim_agent
+from fairline.weather import weather_agent
 from fairline.trends import trends_agent
 
 
@@ -78,7 +82,7 @@ async def _hitl_review(state: FairlineState) -> dict:
 def _route_after_odds(state: FairlineState) -> str:
     if state.get("error"):
         return END
-    return "sim_agent"
+    return "weather_agent"
 
 
 def build_graph(client: httpx.AsyncClient, session_factory=None, checkpointer=None) -> StateGraph:
@@ -91,6 +95,7 @@ def build_graph(client: httpx.AsyncClient, session_factory=None, checkpointer=No
     g = StateGraph(FairlineState)
 
     g.add_node("odds_agent", partial(odds_agent, client=client))
+    g.add_node("weather_agent", partial(weather_agent, client=client))
     g.add_node("sim_agent", partial(sim_agent, session_factory=session_factory))
     g.add_node("trends_agent", partial(trends_agent, session_factory=session_factory))
     g.add_node("pick_agent", pick_agent)
@@ -99,6 +104,7 @@ def build_graph(client: httpx.AsyncClient, session_factory=None, checkpointer=No
 
     g.set_entry_point("odds_agent")
     g.add_conditional_edges("odds_agent", _route_after_odds)
+    g.add_edge("weather_agent", "sim_agent")
     g.add_edge("sim_agent", "trends_agent")
     g.add_edge("trends_agent", "pick_agent")
     g.add_edge("pick_agent", "hitl_review")

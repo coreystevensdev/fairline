@@ -121,16 +121,25 @@ def _format_trends(team_trends: dict, team: str) -> str:
     t = team_trends.get(team)
     if not t:
         return ""
-    return f"{team}: {t['su']} SU, {t['ats']} ATS, {t['ou']} O/U (last {t['n']})"
+    line = f"{team}: {t['su']} SU, {t['ats']} ATS, {t['ou']} O/U (last {t['n']})"
+    if t.get("rest_days") is not None:
+        line += f", {'B2B' if t.get('b2b') else str(t['rest_days']) + 'd rest'}"
+        if t.get("games_last_7", 0) >= 3:
+            line += f", {t['games_last_7']} games in 7d"
+    return line
 
 
 def _build_prompt(
-    games: list[GameSnapshot], fair_lines: list[FairLine], team_trends: dict | None = None
+    games: list[GameSnapshot],
+    fair_lines: list[FairLine],
+    team_trends: dict | None = None,
+    game_weather: dict | None = None,
 ) -> str:
     lines_by_game: dict[str, list[FairLine]] = {}
     for fl in fair_lines:
         lines_by_game.setdefault(fl.game_id, []).append(fl)
     team_trends = team_trends or {}
+    game_weather = game_weather or {}
 
     sections = []
     for game in games:
@@ -147,10 +156,18 @@ def _build_prompt(
             if _format_trends(team_trends, t)
         ]
         trend_text = ("\n  Recent form: " + "; ".join(trend_lines)) if trend_lines else ""
+        wx = game_weather.get(game.game_id)
+        wx_text = ""
+        if wx:
+            wx_text = f"\n  Weather: wind {wx['wind_mph']:.0f} mph"
+            if wx.get("temp_f") is not None:
+                wx_text += f", {wx['temp_f']:.0f}F"
+            if wx.get("precip_prob") is not None:
+                wx_text += f", precip {wx['precip_prob']}%"
         sections.append(
             f"GAME: {game.away_team} @ {game.home_team} -- {game.commence_time.strftime('%a %b %d %I:%M %p UTC')}\n"
             f"  game_id: {game.game_id}\n"
-            f"  Fair probabilities (no-vig):\n{fl_text}{trend_text}"
+            f"  Fair probabilities (no-vig):\n{fl_text}{trend_text}{wx_text}"
         )
 
     return (
@@ -177,7 +194,7 @@ async def pick_agent(state: FairlineState) -> dict:
         return {"candidates": [], "error": None}
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-    prompt = _build_prompt(games, fair_lines, state.get("team_trends"))
+    prompt = _build_prompt(games, fair_lines, state.get("team_trends"), state.get("game_weather"))
 
     resp = client.messages.create(
         model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),

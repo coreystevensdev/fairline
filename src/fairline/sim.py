@@ -282,6 +282,7 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
     if not games or session_factory is None or sport not in SPORT_MODELS:
         return {"sim_lines": caller_lines}
     model = SPORT_MODELS[sport]
+    game_weather = state.get("game_weather", {}) or {}
 
     async with session_factory() as session:
         rows = (
@@ -322,6 +323,11 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
             h2h_prob = _phi(expected / sigma)
             cover = lambda point: _phi((expected + point) / sigma)
             exp_total = expected_total(rates, league_avg, game.home_team, game.away_team)
+            wind = (game_weather.get(game.game_id) or {}).get("wind_mph")
+            if wind is not None:
+                from fairline.weather import wind_total_adjustment
+
+                exp_total += wind_total_adjustment(wind)
             over = lambda line: over_probability(exp_total, line, model["sigma_total"])
         else:
             zero = {"off": 0.0, "def": 0.0}

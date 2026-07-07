@@ -124,6 +124,36 @@ async def record_game_results(
     return written
 
 
+def schedule_context(results: list[GameResult], team: str, upcoming) -> dict:
+    """Rest and recent load before an upcoming game: the NBA edge nobody prices late.
+
+    rest_days counts from the team's last completed game to the upcoming
+    kickoff; b2b flags one day of rest, games_last_7 measures schedule load.
+    """
+    from datetime import timedelta, timezone
+
+    played = [
+        r
+        for r in results
+        if team in (r.home_team, r.away_team) and r.commence_time is not None
+    ]
+    if not played:
+        return {}
+
+    def aware(dt):
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+    upcoming = aware(upcoming)
+    dates = sorted((aware(r.commence_time) for r in played), reverse=True)
+    last = dates[0]
+    rest = (upcoming.date() - last.date()).days
+    return {
+        "rest_days": rest,
+        "b2b": rest <= 1,
+        "games_last_7": sum(1 for d in dates if upcoming - d <= timedelta(days=7)),
+    }
+
+
 async def trends_agent(state: FairlineState, session_factory=None) -> dict:
     """Attach recent SU/ATS/O-U records for every team in today's slate."""
     games = state.get("games", [])
@@ -149,7 +179,17 @@ async def trends_agent(state: FairlineState, session_factory=None) -> dict:
             .all()
         )
 
-    trends = {team: compute_team_trends(results, team) for team in teams}
-    trends = {team: t for team, t in trends.items() if t["n"] > 0}
+    commence_by_team = {}
+    for g in games:
+        commence_by_team[g.home_team] = g.commence_time
+        commence_by_team[g.away_team] = g.commence_time
+
+    trends = {}
+    for team in teams:
+        t = compute_team_trends(results, team)
+        if t["n"] == 0:
+            continue
+        t.update(schedule_context(results, team, commence_by_team[team]))
+        trends[team] = t
     logger.info("trends_agent: records for %d of %d teams", len(trends), len(teams))
     return {"team_trends": trends}

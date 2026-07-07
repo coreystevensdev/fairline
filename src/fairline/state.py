@@ -150,6 +150,9 @@ class FairlineState(TypedDict):
     # TrendsAgent output: team -> {"su", "ats", "ou", "n"} records
     team_trends: dict
 
+    # WeatherAgent output: game_id -> {"wind_mph", "temp_f", "precip_prob"}
+    game_weather: dict
+
     # PickAgent output
     candidates: list[PickCandidate]
 

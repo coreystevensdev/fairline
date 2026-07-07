@@ -188,3 +188,54 @@ async def test_trends_agent_without_db_returns_empty():
 
     out = await trends_agent({"games": []}, session_factory=None)
     assert out == {"team_trends": {}}
+
+
+class TestScheduleContext:
+    def test_rest_days_and_weekly_load(self):
+        from fairline.trends import schedule_context
+
+        results = [_result(1, 27, 20), _result(2, 23, 20)]  # 7 and 14 days before NOW
+        ctx = schedule_context(results, "Kansas City Chiefs", upcoming=NOW)
+
+        assert ctx["rest_days"] == 7
+        assert ctx["games_last_7"] == 1
+
+    def test_back_to_back_is_flagged(self):
+        from fairline.trends import schedule_context
+
+        r = _result(1, 110, 100)
+        r.commence_time = NOW - timedelta(days=1)
+        ctx = schedule_context([r], "Kansas City Chiefs", upcoming=NOW)
+
+        assert ctx["rest_days"] == 1
+        assert ctx["b2b"] is True
+
+    def test_no_history_returns_nothing(self):
+        from fairline.trends import schedule_context
+
+        assert schedule_context([], "Kansas City Chiefs", upcoming=NOW) == {}
+
+
+async def test_trends_agent_includes_schedule_context(session_factory):
+    from fairline.state import GameSnapshot
+    from fairline.trends import trends_agent
+
+    async with session_factory() as session:
+        session.add(_result(1, 27, 20))
+        await session.commit()
+
+    game = GameSnapshot(
+        game_id="up-1",
+        sport="americanfootball_nfl",
+        home_team="Kansas City Chiefs",
+        away_team="Las Vegas Raiders",
+        commence_time=NOW + timedelta(days=1),
+        bookmakers=[],
+    )
+    out = await trends_agent(
+        {"sport": "americanfootball_nfl", "games": [game]}, session_factory=session_factory
+    )
+
+    kc = out["team_trends"]["Kansas City Chiefs"]
+    assert kc["rest_days"] == 8
+    assert kc["b2b"] is False

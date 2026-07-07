@@ -399,3 +399,53 @@ async def test_sim_agent_covers_nhl_with_poisson_family(session_factory):
     h2h = [sl for sl in out["sim_lines"] if sl.market == "h2h"]
     assert len(h2h) == 1
     assert h2h[0].probability > 0.6
+
+
+async def test_sim_agent_applies_wind_to_totals(session_factory):
+    async with session_factory() as session:
+        for i in range(1, 5):
+            session.add(
+                GameResult(
+                    game_id=f"w{i}",
+                    sport="americanfootball_nfl",
+                    home_team="Kansas City Chiefs",
+                    away_team="Denver Broncos",
+                    commence_time=NOW - timedelta(days=7 * i),
+                    home_score=30,
+                    away_score=20,
+                )
+            )
+        await session.commit()
+
+    game = GameSnapshot(
+        game_id="windy-1",
+        sport="americanfootball_nfl",
+        home_team="Kansas City Chiefs",
+        away_team="Denver Broncos",
+        commence_time=NOW + timedelta(days=2),
+        bookmakers=[
+            BookmakerOdds(
+                key="pinnacle",
+                title="Pinnacle",
+                markets=[
+                    MarketOdds(
+                        key="totals",
+                        outcomes=[
+                            Outcome(name="Over", price=-110, point=44.5),
+                            Outcome(name="Under", price=-110, point=44.5),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    base_state = {"sport": "americanfootball_nfl", "games": [game], "sim_lines": []}
+    calm = await sim_agent(dict(base_state), session_factory=session_factory)
+    windy = await sim_agent(
+        {**base_state, "game_weather": {"windy-1": {"wind_mph": 25.0}}},
+        session_factory=session_factory,
+    )
+
+    calm_over = next(sl for sl in calm["sim_lines"] if sl.market == "totals").probability
+    windy_over = next(sl for sl in windy["sim_lines"] if sl.market == "totals").probability
+    assert windy_over < calm_over

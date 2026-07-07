@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![155 tests](https://img.shields.io/badge/tests-155-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![166 tests](https://img.shields.io/badge/tests-166-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -103,6 +103,16 @@ Kansas City Chiefs: 7-3-0 SU, 6-3-1 ATS, 4-5-1 O/U (last 10)
 ```
 
 Also served at `GET /api/trends?team=...&last_n=10`. Coverage grows with collection: games the watcher never saw count toward straight-up records only, since their closing lines were never captured.
+
+### Research context
+
+Two more inputs reach the pick agent the way a professional would check them, as data, not vibes:
+
+**Schedule spots.** Rest days, back-to-back flags, and games-in-last-7 are computed from stored results (no new data source) and ride the same "Recent form" prompt line as trends. Rest is the most mispriced situational factor in the NBA, and it costs nothing to know.
+
+**Weather.** For outdoor NFL games inside the 16-day forecast horizon, a `weather_agent` node pulls the kickoff-hour wind, temperature, and precipitation from Open-Meteo (free, keyless). The reading lands in the pick prompt, and wind feeds a bounded totals adjustment in the sim: about a third of a point off the expected total per mph over 10, capped at 7 points. Domes are skipped; the adjustment is code, not narrative.
+
+The standing rule ties this together: Claude reads what the pipeline hands it and never invents a fact. A rationale citing 20 mph wind traces to a forecast the system actually fetched.
 
 ### Agent records
 
