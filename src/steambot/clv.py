@@ -28,6 +28,7 @@ class ClosingLine(NamedTuple):
     price: int
     probability: float
     book: str
+    point: float | None
 
 
 def closing_line_for_selection(game: GameSnapshot, market: str, selection: str) -> ClosingLine | None:
@@ -54,7 +55,8 @@ def closing_line_for_selection(game: GameSnapshot, market: str, selection: str) 
         return None
 
     fair = remove_vig([american_to_prob(o.price) for o in mkt.outcomes])
-    return ClosingLine(price=mkt.outcomes[idx].price, probability=fair[idx], book=book)
+    matched = mkt.outcomes[idx]
+    return ClosingLine(price=matched.price, probability=fair[idx], book=book, point=matched.point)
 
 
 async def settle_closing_lines(
@@ -103,6 +105,7 @@ async def settle_closing_lines(
                 continue
 
             pick.closing_price = line.price
+            pick.closing_point = line.point
             pick.closing_probability = line.probability
             pick.clv = line.probability - american_to_prob(pick.price)
             settled += 1

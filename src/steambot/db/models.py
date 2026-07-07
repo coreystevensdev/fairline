@@ -48,6 +48,8 @@ class Pick(Base):
 
     # Outcome fields -- filled by `steambot settle` (closing line) and `steambot grade` (result)
     closing_price: Mapped[int | None] = mapped_column(Integer)
+    # closing spread/total line; NULL for h2h. Makes point drift (-3.5 -> -4.0) queryable
+    closing_point: Mapped[float | None] = mapped_column(Float)
     closing_probability: Mapped[float | None] = mapped_column(Float)
     # CLV = closing_probability - implied prob of the taken price (positive = beat the close)
     clv: Mapped[float | None] = mapped_column(Float)

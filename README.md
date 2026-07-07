@@ -1,7 +1,7 @@
 # SteamBot
 
 [![CI](https://github.com/coreystevensdev/steambot/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/steambot/actions)
-[![65 tests](https://img.shields.io/badge/tests-65-brightgreen)](https://github.com/coreystevensdev/steambot/actions)
+[![66 tests](https://img.shields.io/badge/tests-66-brightgreen)](https://github.com/coreystevensdev/steambot/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic NFL betting research service that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared.
@@ -180,7 +180,7 @@ python -m eval --out eval/report.json
 1. **Rate limiting is per-instance.** There is no shared Redis counter across multiple app replicas. Fine for the current demo scale; documented trade-off.
 2. **Off-season returns empty.** The Odds API returns no NFL games May through July. The `/api/runs` endpoint returns an empty `candidates` list rather than an error, which is correct but may confuse first-time callers.
 3. **Closing line is a near-kickoff snapshot, not the true close.** The free Odds API tier has no historical endpoint, so `python -m steambot settle` records whatever Pinnacle shows when it runs. If the job does not run inside its window before kickoff, `clv` stays `null` for those picks; there is no backfill. Line movement in the final seconds before kickoff is also invisible to a snapshot taken minutes earlier.
-4. **CLV ignores point drift.** A spread bet at -3.5 that closes at -4.0 is compared by price only; the half-point of line movement is directional evidence the price comparison understates.
+4. **The clv number ignores point drift.** A spread bet at -3.5 that closes at -4.0 is compared by price only. The closing line is stored in `closing_point`, so the drift is queryable (`SELECT selection, closing_point FROM picks`), but it is not folded into the single `clv` float; converting a half point of NFL spread movement to probability requires a push-chart model that is out of scope.
 5. **Grading has a 3-day window.** The scores endpoint reaches back at most 3 days. A pick whose game finished more than 3 days before `steambot grade` runs stays ungraded permanently; run it at least twice a week during the season.
 6. **No authentication.** The `user_id` field is caller-supplied with no JWT verification. Adding auth is the first production-readiness gap.
 7. **MemorySaver in tests.** The graph uses `MemorySaver` (in-process) for local dev. Production requires `PostgresSaver` for checkpoints to survive restarts; the switchover is a one-line change in `graph.py`.

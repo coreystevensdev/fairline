@@ -97,6 +97,7 @@ def test_closing_line_devigs_the_selection_side():
 
     assert line is not None
     assert line.price == -120
+    assert line.point == -3.5
     # -120 implies 0.5455, +100 implies 0.5; no-vig share of the Chiefs side
     expected = (120 / 220) / (120 / 220 + 0.5)
     assert line.probability == pytest.approx(expected)
@@ -125,6 +126,7 @@ async def test_settle_writes_closing_fields_and_clv(session_factory):
     async with session_factory() as session:
         pick = (await session.execute(select(Pick))).scalars().one()
     assert pick.closing_price == -120
+    assert pick.closing_point == -3.5
     expected_prob = (120 / 220) / (120 / 220 + 0.5)
     assert pick.closing_probability == pytest.approx(expected_prob)
     assert pick.clv == pytest.approx(expected_prob - american_to_prob(-108))
@@ -268,3 +270,31 @@ async def test_grade_results_skips_already_graded(session_factory):
     summary = await grade_results([_score()], session_factory)
 
     assert summary == {"graded": 0, "pending": 0, "missed": 0}
+
+
+def test_closing_line_h2h_has_no_point():
+    game = GameSnapshot(
+        game_id="game-1",
+        sport="americanfootball_nfl",
+        home_team="Kansas City Chiefs",
+        away_team="Las Vegas Raiders",
+        commence_time=KICKOFF,
+        bookmakers=[
+            BookmakerOdds(
+                key="pinnacle",
+                title="Pinnacle",
+                markets=[
+                    MarketOdds(
+                        key="h2h",
+                        outcomes=[
+                            Outcome(name="Kansas City Chiefs", price=-165),
+                            Outcome(name="Las Vegas Raiders", price=148),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    line = closing_line_for_selection(game, "h2h", "Kansas City Chiefs")
+    assert line is not None
+    assert line.point is None
