@@ -25,7 +25,12 @@ _templates: Jinja2Templates | None = None
 async def lifespan(app: FastAPI):
     global _http_client, _graph
     _http_client = httpx.AsyncClient()
-    _graph = build_graph(_http_client)
+    try:
+        from steambot.db.session import get_session_factory
+        factory = get_session_factory()
+    except RuntimeError:
+        factory = None
+    _graph = build_graph(_http_client, session_factory=factory)
     yield
     await _http_client.aclose()
     _http_client = None

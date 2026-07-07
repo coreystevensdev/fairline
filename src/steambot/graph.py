@@ -73,10 +73,11 @@ def _route_after_odds(state: SteamBotState) -> str:
     return "pick_agent"
 
 
-def build_graph(client: httpx.AsyncClient, checkpointer=None) -> StateGraph:
+def build_graph(client: httpx.AsyncClient, session_factory=None, checkpointer=None) -> StateGraph:
     """Compile and return the SteamBot LangGraph.
 
     Pass a shared httpx.AsyncClient so nodes that make HTTP calls share a pool.
+    Pass session_factory for validate_agent to write picks to the DB.
     Pass a checkpointer (MemorySaver or PostgresSaver) for HITL persistence.
     """
     g = StateGraph(SteamBotState)
@@ -84,7 +85,7 @@ def build_graph(client: httpx.AsyncClient, checkpointer=None) -> StateGraph:
     g.add_node("odds_agent", partial(odds_agent, client=client))
     g.add_node("pick_agent", pick_agent)
     g.add_node("hitl_review", _hitl_review)
-    g.add_node("validate_agent", validate_agent)
+    g.add_node("validate_agent", partial(validate_agent, session_factory=session_factory))
 
     g.set_entry_point("odds_agent")
     g.add_conditional_edges("odds_agent", _route_after_odds)
