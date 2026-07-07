@@ -1,7 +1,7 @@
 # SteamBot
 
 [![CI](https://github.com/coreystevensdev/steambot/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/steambot/actions)
-[![83 tests](https://img.shields.io/badge/tests-83-brightgreen)](https://github.com/coreystevensdev/steambot/actions)
+[![93 tests](https://img.shields.io/badge/tests-93-brightgreen)](https://github.com/coreystevensdev/steambot/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic NFL betting research service that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared.
@@ -114,15 +114,21 @@ python -m steambot sim-report
 
 This splits settled picks into sim-agreed and sim-disagreed against the sharp line and compares average CLV. The disagreed bucket is the only place a sim can prove it carries information the market lacks. If that bucket's CLV is not positive over a real sample, the sim is adding confidence, not information, and its weight should go down, not up.
 
-### Line history
+### Steam detection
 
-Steam detection (spotting sharp, fast Pinnacle moves and betting retail books that lag them) needs line history a single odds fetch cannot provide. The collector:
+Steam is a sharp, fast move at Pinnacle: informed money hitting the market. The watcher records line history and flags it:
 
 ```bash
 python -m steambot watch --interval-seconds 120 --window-hours 3
 ```
 
-Each cycle stores Pinnacle and retail prices for games kicking off within the window into `line_snapshots`, then exits once no games are near. Use `--once` under cron. Every poll costs one Odds API request; a 2-minute interval through NFL game-day windows will exceed the free tier's 500 requests/month, so sustained collection needs the paid tier or wider intervals. Detection over these rows is not built yet; this is the raw material.
+Each cycle stores Pinnacle and retail prices for games kicking off within the window into `line_snapshots`, compares the newest sharp-book cycle against the recent baseline, and alerts on decisive moves: a no-vig probability jump of 2+ points inside ~10 minutes, or a spread crossing a key number (3 or 7, the most common NFL margins) toward the favorite. Slow drift does not fire; steam is velocity. Alerts print to stdout and, when `STEAMBOT_WEBHOOK_URL` is set, POST as JSON to that URL (Slack- and Discord-compatible payload shape):
+
+```
+STEAM Kansas City Chiefs (spreads) -110 -> -125 point -2.5 -> -3.0 KEY prob +0.021 in 6m via pinnacle
+```
+
+Use `--once` under cron. Every poll costs one Odds API request; a 2-minute interval through NFL game-day windows will exceed the free tier's 500 requests/month, so sustained collection needs the paid tier or wider intervals. Turning steam events into auto-generated pick candidates (betting retail books that lag the move) is the next phase; today the alert is the product.
 
 ---
 

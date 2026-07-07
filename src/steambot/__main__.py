@@ -25,13 +25,20 @@ async def _settle(window_minutes: int) -> None:
 
 
 async def _watch(interval_seconds: int, window_hours: float, once: bool) -> None:
+    import os
     from datetime import datetime, timezone
 
     from steambot.clients.odds_api import fetch_nfl_odds
     from steambot.db.session import get_session_factory
-    from steambot.steam import games_in_window, record_snapshots
+    from steambot.steam import (
+        format_steam_event,
+        games_in_window,
+        record_snapshots,
+        scan_recent_steam,
+    )
 
     factory = get_session_factory()
+    webhook_url = os.environ.get("STEAMBOT_WEBHOOK_URL", "")
     async with httpx.AsyncClient() as client:
         while True:
             now = datetime.now(timezone.utc)
@@ -41,7 +48,18 @@ async def _watch(interval_seconds: int, window_hours: float, once: bool) -> None
                 print(f"no games within {window_hours}h; exiting")
                 return
             written = await record_snapshots(upcoming, factory, captured_at=now)
-            print(f"{now.isoformat(timespec='seconds')} games={len(upcoming)} rows={written}")
+            events = await scan_recent_steam(factory)
+            print(
+                f"{now.isoformat(timespec='seconds')} games={len(upcoming)} rows={written} steam={len(events)}"
+            )
+            for event in events:
+                line = format_steam_event(event)
+                print(line)
+                if webhook_url:
+                    try:
+                        await client.post(webhook_url, json={"text": line}, timeout=10.0)
+                    except httpx.HTTPError as exc:
+                        logging.getLogger(__name__).warning("webhook post failed: %s", exc)
             if once:
                 return
             await asyncio.sleep(interval_seconds)

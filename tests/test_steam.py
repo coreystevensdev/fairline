@@ -104,3 +104,105 @@ async def test_record_snapshots_persists_rows(session_factory):
         rows = (await session.execute(select(LineSnapshot))).scalars().all()
     assert len(rows) == 4
     assert {r.game_id for r in rows} == {"game-1"}
+
+
+def _rows(captured_at, price_a=-110, price_b=-110, point_a=-2.5, point_b=2.5, market="spreads"):
+    common = dict(game_id="game-1", book="pinnacle", market=market, captured_at=captured_at)
+    return [
+        LineSnapshot(outcome="Kansas City Chiefs", price=price_a, point=point_a, **common),
+        LineSnapshot(outcome="Las Vegas Raiders", price=price_b, point=point_b, **common),
+    ]
+
+
+class TestCrossedKeyNumber:
+    def test_crossing_three(self):
+        from steambot.steam import crossed_key_number
+
+        assert crossed_key_number(-2.5, -3.5) is True
+
+    def test_landing_on_seven(self):
+        from steambot.steam import crossed_key_number
+
+        assert crossed_key_number(-6.5, -7.0) is True
+
+    def test_move_between_keys(self):
+        from steambot.steam import crossed_key_number
+
+        assert crossed_key_number(-7.5, -8.5) is False
+
+    def test_no_move(self):
+        from steambot.steam import crossed_key_number
+
+        assert crossed_key_number(-2.5, -2.5) is False
+
+
+class TestDetectSteam:
+    def test_prob_move_over_threshold_fires(self):
+        from steambot.steam import detect_steam
+
+        old = _rows(NOW, price_a=-110, price_b=-110, market="h2h", point_a=None, point_b=None)
+        new = _rows(NOW + timedelta(minutes=6), price_a=-125, price_b=105, market="h2h", point_a=None, point_b=None)
+
+        events = detect_steam(old, new)
+
+        assert len(events) == 1
+        e = events[0]
+        assert e.outcome == "Kansas City Chiefs"
+        # -125/+105 devigs to .5325 for the favorite, from .5000
+        assert e.prob_move == pytest.approx(0.0325, abs=0.001)
+        assert e.crossed_key is False
+
+    def test_small_move_is_silent(self):
+        from steambot.steam import detect_steam
+
+        old = _rows(NOW, price_a=-110, price_b=-110)
+        new = _rows(NOW + timedelta(minutes=6), price_a=-112, price_b=-108)
+
+        assert detect_steam(old, new) == []
+
+    def test_stale_baseline_is_ignored(self):
+        from steambot.steam import detect_steam
+
+        old = _rows(NOW, price_a=-110, price_b=-110, market="h2h", point_a=None, point_b=None)
+        new = _rows(NOW + timedelta(minutes=45), price_a=-130, price_b=110, market="h2h", point_a=None, point_b=None)
+
+        assert detect_steam(old, new) == []
+
+    def test_key_number_crossing_fires_without_price_move(self):
+        from steambot.steam import detect_steam
+
+        old = _rows(NOW, point_a=-2.5, point_b=2.5)
+        new = _rows(NOW + timedelta(minutes=6), point_a=-3.0, point_b=3.0)
+
+        events = detect_steam(old, new)
+
+        assert len(events) == 1
+        e = events[0]
+        assert e.outcome == "Kansas City Chiefs"
+        assert e.crossed_key is True
+        assert e.old_point == -2.5
+        assert e.new_point == -3.0
+
+
+async def test_scan_recent_steam_compares_latest_against_baseline(session_factory):
+    from steambot.steam import scan_recent_steam
+
+    async with session_factory() as session:
+        session.add_all(_rows(NOW - timedelta(minutes=8), price_a=-110, price_b=-110, market="h2h", point_a=None, point_b=None))
+        session.add_all(_rows(NOW, price_a=-125, price_b=105, market="h2h", point_a=None, point_b=None))
+        await session.commit()
+
+    events = await scan_recent_steam(session_factory, lookback_minutes=12)
+
+    assert len(events) == 1
+    assert events[0].outcome == "Kansas City Chiefs"
+
+
+async def test_scan_with_single_cycle_returns_nothing(session_factory):
+    from steambot.steam import scan_recent_steam
+
+    async with session_factory() as session:
+        session.add_all(_rows(NOW))
+        await session.commit()
+
+    assert await scan_recent_steam(session_factory, lookback_minutes=12) == []
