@@ -60,6 +60,11 @@ class ApprovePicksRequest(BaseModel):
 # In-memory run registry (per-instance; replace with DB for production).
 _runs: dict[str, dict] = {}
 
+# Stripe event ids we have already applied (per-instance; a redelivery or an
+# out-of-order created/deleted pair would otherwise flip is_pro incorrectly).
+# Mirrors the _runs per-instance limitation: replace with a DB table in production.
+_processed_stripe_events: set[str] = set()
+
 
 @router.get("/health")
 async def health():
@@ -102,9 +107,10 @@ async def start_run(req: StartRunRequest):
             _runs[run_id]["state"] = result
     except GraphInterrupt:
         _runs[run_id]["status"] = "awaiting_review"
-    except Exception as exc:
+    except Exception:
+        logger.exception("start_run: graph invocation failed for run_id=%s", run_id)
         _runs[run_id]["status"] = "error"
-        _runs[run_id]["error"] = str(exc)
+        _runs[run_id]["error"] = "Run failed. See server logs."
 
     return StartRunResponse(
         run_id=run_id,
@@ -165,10 +171,11 @@ async def approve_picks(run_id: str, req: ApprovePicksRequest):
         _runs[run_id]["state"] = result
         approved = [p.model_dump() if hasattr(p, "model_dump") else p for p in (result.get("approved_picks") or [])]
         return RunStatusResponse(run_id=run_id, status="complete", approved_picks=approved)
-    except Exception as exc:
+    except Exception:
+        logger.exception("approve_picks: resume failed for run_id=%s", run_id)
         _runs[run_id]["status"] = "error"
-        _runs[run_id]["error"] = str(exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        _runs[run_id]["error"] = "Approval failed. See server logs."
+        raise HTTPException(status_code=500, detail="Approval failed")
 
 
 @router.post("/api/stripe/webhook", status_code=200)
@@ -182,16 +189,20 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
+    event_id = event.get("id")
+    if event_id and event_id in _processed_stripe_events:
+        return {"received": True, "duplicate": True}
+
     customer_id: str | None = None
     is_pro_grant: bool | None = None
     if event["type"] == "customer.subscription.created":
-        customer_id = event["data"]["object"]["customer"]
+        customer_id = event.get("data", {}).get("object", {}).get("customer")
         is_pro_grant = True
     elif event["type"] == "customer.subscription.deleted":
-        customer_id = event["data"]["object"]["customer"]
+        customer_id = event.get("data", {}).get("object", {}).get("customer")
         is_pro_grant = False
 
-    if customer_id is not None and is_pro_grant is not None:
+    if customer_id and is_pro_grant is not None:
         factory = get_session_factory()
         async with factory() as session:
             result = await session.execute(
@@ -207,5 +218,8 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
                     customer_id,
                     event["type"],
                 )
+
+    if event_id:
+        _processed_stripe_events.add(event_id)
 
     return {"received": True}
