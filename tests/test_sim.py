@@ -449,3 +449,68 @@ async def test_sim_agent_applies_wind_to_totals(session_factory):
     calm_over = next(sl for sl in calm["sim_lines"] if sl.market == "totals").probability
     windy_over = next(sl for sl in windy["sim_lines"] if sl.market == "totals").probability
     assert windy_over < calm_over
+
+
+class TestRestAdjustment:
+    def test_nba_back_to_back_costs_points(self):
+        from fairline.sim import rest_margin_adjustment
+
+        # home on a b2b, away rested: home margin expectation drops
+        adj = rest_margin_adjustment(
+            "basketball_nba", {"b2b": True, "rest_days": 1}, {"b2b": False, "rest_days": 3}
+        )
+        assert adj == pytest.approx(-2.0)
+
+    def test_nfl_short_week_and_bye_bump(self):
+        from fairline.sim import rest_margin_adjustment
+
+        short = rest_margin_adjustment(
+            "americanfootball_nfl", {"rest_days": 4}, {"rest_days": 7}
+        )
+        rested = rest_margin_adjustment(
+            "americanfootball_nfl", {"rest_days": 14}, {"rest_days": 7}
+        )
+        assert short == pytest.approx(-1.0)
+        assert rested == pytest.approx(1.0)
+
+    def test_missing_context_is_neutral(self):
+        from fairline.sim import rest_margin_adjustment
+
+        assert rest_margin_adjustment("basketball_nba", {}, {}) == 0.0
+
+
+async def test_sim_agent_reads_rest_from_team_trends(session_factory):
+    async with session_factory() as session:
+        for i in range(1, 5):
+            session.add(
+                GameResult(
+                    game_id=f"r{i}",
+                    sport="basketball_nba",
+                    home_team="Boston Celtics",
+                    away_team="Washington Wizards",
+                    commence_time=NOW - timedelta(days=3 * i),
+                    home_score=110,
+                    away_score=110,
+                )
+            )
+        await session.commit()
+
+    game = GameSnapshot(
+        game_id="nba-rest",
+        sport="basketball_nba",
+        home_team="Boston Celtics",
+        away_team="Washington Wizards",
+        commence_time=NOW + timedelta(days=1),
+        bookmakers=[],
+    )
+    base = {"sport": "basketball_nba", "games": [game], "sim_lines": []}
+    neutral = await sim_agent(dict(base), session_factory=session_factory)
+    home_b2b = await sim_agent(
+        {**base, "team_trends": {"Boston Celtics": {"b2b": True, "rest_days": 1},
+                                 "Washington Wizards": {"b2b": False, "rest_days": 3}}},
+        session_factory=session_factory,
+    )
+
+    p_neutral = next(sl for sl in neutral["sim_lines"] if sl.market == "h2h").probability
+    p_b2b = next(sl for sl in home_b2b["sim_lines"] if sl.market == "h2h").probability
+    assert p_b2b < p_neutral

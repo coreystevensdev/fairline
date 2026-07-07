@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![166 tests](https://img.shields.io/badge/tests-166-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![170 tests](https://img.shields.io/badge/tests-170-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -158,7 +158,7 @@ Approved matchup picks grade automatically against box scores (`fairline grade` 
 
 ### The simulation model
 
-The `sim_agent` node computes probabilities per sport before picks are generated. NFL and NBA use a Normal margin family (Elo-style points ratings, sigma 13.5 and 11.5); NHL and MLB are low-scoring count sports, so they use a double-Poisson scoring model built from team rates, with regulation ties split by relative strength since neither sport can end tied. For NFL: Elo-style points-scale team ratings fit from stored game results (home-field advantage 2.0, ratings regress a third toward zero between seasons), a Normal margin model (sigma 13.5) for win and cover probabilities, and a totals model built from current-season team scoring rates (Normal, sigma 10) for over/under probabilities. All arithmetic is code over data; Claude is never asked to estimate a probability. Seed the ratings with history in one command:
+The `sim_agent` node computes probabilities per sport before picks are generated, consuming everything upstream context provides: results-fit ratings, current-season scoring rates, kickoff-hour wind, and rest spots (NBA back-to-backs cost about two points of expected margin, NFL short weeks one, bounded at three). NFL and NBA use a Normal margin family (Elo-style points ratings, sigma 13.5 and 11.5); NHL and MLB are low-scoring count sports, so they use a double-Poisson scoring model built from team rates, with regulation ties split by relative strength since neither sport can end tied, and NHL back-to-backs shaving a quarter goal off the tired side. For NFL: Elo-style points-scale team ratings fit from stored game results (home-field advantage 2.0, ratings regress a third toward zero between seasons), a Normal margin model (sigma 13.5) for win and cover probabilities, and a totals model built from current-season team scoring rates (Normal, sigma 10) for over/under probabilities. All arithmetic is code over data; Claude is never asked to estimate a probability. Seed the ratings with history in one command:
 
 ```bash
 python -m fairline backfill-nfl --seasons 2023 2024 2025

@@ -254,6 +254,41 @@ def parse_nflverse_games(csv_text: str) -> tuple[list[dict], list[GameResult]]:
     return sim_games, results
 
 
+REST_CAP = 3.0
+
+
+def rest_margin_adjustment(sport: str, home_ctx: dict, away_ctx: dict) -> float:
+    """Home-perspective margin adjustment for rest spots, bounded to +-3.
+
+    NBA back-to-backs are worth about two points; NFL short weeks about one,
+    and a bye-length layoff about one the other way. MLB plays daily and
+    gets nothing; NHL fatigue is handled on the lambda side.
+    """
+
+    def team_adj(ctx: dict) -> float:
+        rest = ctx.get("rest_days")
+        if rest is None:
+            return 0.0
+        if sport == "basketball_nba":
+            return -2.0 if ctx.get("b2b") else 0.0
+        if sport == "americanfootball_nfl":
+            if rest <= 5:
+                return -1.0
+            if rest >= 10:
+                return 1.0
+        return 0.0
+
+    adj = team_adj(home_ctx) - team_adj(away_ctx)
+    return max(-REST_CAP, min(REST_CAP, adj))
+
+
+def rest_lambda_adjustment(sport: str, ctx: dict) -> float:
+    """Scoring-rate penalty for tired teams in the Poisson family."""
+    if sport == "icehockey_nhl" and ctx.get("b2b"):
+        return -0.25
+    return 0.0
+
+
 def _market_points(game: GameSnapshot, market: str) -> dict[str, float]:
     """Sharp-book point per outcome name for one market, if present."""
     from fairline.agents.odds import best_sharp_book
@@ -283,6 +318,7 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
         return {"sim_lines": caller_lines}
     model = SPORT_MODELS[sport]
     game_weather = state.get("game_weather", {}) or {}
+    team_trends = state.get("team_trends", {}) or {}
 
     async with session_factory() as session:
         rows = (
@@ -315,9 +351,14 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
     covered = {(sl.home_team, sl.away_team, sl.market) for sl in caller_lines}
     model_lines: list[SimLine] = []
     for game in games:
+        home_ctx = team_trends.get(game.home_team, {})
+        away_ctx = team_trends.get(game.away_team, {})
         if model["family"] == "normal":
             expected = (
-                ratings.get(game.home_team, 0.0) - ratings.get(game.away_team, 0.0) + model["hfa"]
+                ratings.get(game.home_team, 0.0)
+                - ratings.get(game.away_team, 0.0)
+                + model["hfa"]
+                + rest_margin_adjustment(sport, home_ctx, away_ctx)
             )
             sigma = model["sigma_margin"]
             h2h_prob = _phi(expected / sigma)
@@ -333,8 +374,16 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
             zero = {"off": 0.0, "def": 0.0}
             h = rates.get(game.home_team, zero)
             a = rates.get(game.away_team, zero)
-            lam_home = max(0.2, league_avg + h["off"] + a["def"] + model["hfa"] / 2)
-            lam_away = max(0.2, league_avg + a["off"] + h["def"] - model["hfa"] / 2)
+            lam_home = max(
+                0.2,
+                league_avg + h["off"] + a["def"] + model["hfa"] / 2
+                + rest_lambda_adjustment(sport, home_ctx),
+            )
+            lam_away = max(
+                0.2,
+                league_avg + a["off"] + h["def"] - model["hfa"] / 2
+                + rest_lambda_adjustment(sport, away_ctx),
+            )
             h2h_prob = poisson_win_probability(lam_home, lam_away)
             cover = lambda point: poisson_cover_probability(lam_home, lam_away, point)
             over = lambda line: poisson_over_probability(lam_home + lam_away, line)

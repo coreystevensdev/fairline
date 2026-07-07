@@ -7,10 +7,10 @@ Topology:
   weather_agent
       |
       v
-  sim_agent
+  trends_agent
       |
       v
-  trends_agent
+  sim_agent
       |
       v
   pick_agent
@@ -104,9 +104,9 @@ def build_graph(client: httpx.AsyncClient, session_factory=None, checkpointer=No
 
     g.set_entry_point("odds_agent")
     g.add_conditional_edges("odds_agent", _route_after_odds)
-    g.add_edge("weather_agent", "sim_agent")
-    g.add_edge("sim_agent", "trends_agent")
-    g.add_edge("trends_agent", "pick_agent")
+    g.add_edge("weather_agent", "trends_agent")
+    g.add_edge("trends_agent", "sim_agent")
+    g.add_edge("sim_agent", "pick_agent")
     g.add_edge("pick_agent", "hitl_review")
     g.add_edge("hitl_review", "validate_agent")
     g.add_edge("validate_agent", END)
