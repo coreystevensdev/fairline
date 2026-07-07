@@ -84,7 +84,7 @@ async def start_run(req: StartRunRequest):
         "error": None,
     }
 
-    _runs[run_id] = {"status": "running", "state": initial}
+    _runs[run_id] = {"status": "running", "state": initial, "owner": req.user_id}
     graph = get_graph()
     config = {"configurable": {"thread_id": run_id}}
 
@@ -114,9 +114,11 @@ async def start_run(req: StartRunRequest):
 
 
 @router.get("/api/runs/{run_id}", response_model=RunStatusResponse)
-async def get_run(run_id: str):
+async def get_run(run_id: str, user_id: str = "demo"):
     run = _runs.get(run_id)
-    if not run:
+    # Return 404 for both missing and non-owned runs so a caller cannot probe run_ids
+    # they do not own. user_id is client-supplied today; production needs a real principal.
+    if not run or run.get("owner") != user_id:
         raise HTTPException(status_code=404, detail="Run not found")
     graph = get_graph()
     config = {"configurable": {"thread_id": run_id}}
@@ -144,7 +146,7 @@ async def get_run(run_id: str):
 @router.post("/api/runs/{run_id}/approve", response_model=RunStatusResponse)
 async def approve_picks(run_id: str, req: ApprovePicksRequest):
     run = _runs.get(run_id)
-    if not run:
+    if not run or run.get("owner") != req.user_id:
         raise HTTPException(status_code=404, detail="Run not found")
     if run["status"] != "awaiting_review":
         raise HTTPException(status_code=409, detail=f"Run is {run['status']}, not awaiting_review")
