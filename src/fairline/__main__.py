@@ -27,16 +27,50 @@ async def _fetch_odds_for(client: httpx.AsyncClient, sport: str):
 
 
 async def _settle(window_minutes: int, sport: str) -> None:
-    from fairline.clv import settle_closing_lines
-    from fairline.db.session import get_session_factory
+    from datetime import datetime, timedelta, timezone
 
+    from sqlalchemy import select
+
+    from fairline.clients.odds_api import fetch_event_props
+    from fairline.clv import settle_closing_lines
+    from fairline.db.models import Pick
+    from fairline.db.session import get_session_factory
+    from fairline.matchup import PROP_STAT_COLUMNS
+    from fairline.props import settle_prop_picks
+
+    factory = get_session_factory()
     async with httpx.AsyncClient() as client:
         games = await _fetch_odds_for(client, sport)
-    summary = await settle_closing_lines(
-        games, get_session_factory(), window_minutes=window_minutes
-    )
+        summary = await settle_closing_lines(games, factory, window_minutes=window_minutes)
+
+        # prop closing lines cost one request per event; fetch only events
+        # that actually hold an unsettled prop pick inside the window
+        cutoff = datetime.now(timezone.utc) + timedelta(minutes=window_minutes)
+        async with factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(Pick.game_id, Pick.sport)
+                        .where(
+                            Pick.closing_price.is_(None),
+                            Pick.market.in_(PROP_STAT_COLUMNS),
+                            Pick.commence_time <= cutoff.replace(tzinfo=None),
+                        )
+                        .distinct()
+                    )
+                )
+                .all()
+            )
+        snapshots = []
+        for game_id, pick_sport in rows:
+            snap = await fetch_event_props(client, pick_sport, game_id)
+            if snap is not None:
+                snapshots.append(snap)
+    prop_summary = await settle_prop_picks(snapshots, factory, window_minutes=window_minutes)
     print(
-        f"settled={summary['settled']} missed={summary['missed']} pending={summary['pending']}"
+        f"settled={summary['settled']} missed={summary['missed']} pending={summary['pending']} "
+        f"props_settled={prop_summary['settled']} props_point_moved={prop_summary['point_moved']} "
+        f"props_missed={prop_summary['missed']}"
     )
 
 

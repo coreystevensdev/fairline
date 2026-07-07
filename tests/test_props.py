@@ -138,3 +138,108 @@ async def test_fetch_event_props_hits_event_endpoint(monkeypatch):
     assert snap is not None
     outcome = snap.bookmakers[0].markets[0].outcomes[0]
     assert outcome.description == "Patrick Mahomes"
+
+
+import pytest as _pytest
+from datetime import timedelta
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from fairline.db.models import Base, Pick
+
+
+@_pytest.fixture
+async def session_factory():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    yield factory
+    await engine.dispose()
+
+
+def _prop_pick(pid="pp-1", selection="Patrick Mahomes Over 275.5", price=105) -> Pick:
+    return Pick(
+        id=pid,
+        user_id="u1",
+        run_id="matchup:1",
+        sport="americanfootball_nfl",
+        game_id="evt-1",
+        home_team="Kansas City Chiefs",
+        away_team="Las Vegas Raiders",
+        commence_time=KICKOFF,
+        market="player_pass_yds",
+        selection=selection,
+        book="draftkings",
+        price=price,
+        sharp_probability=0.51,
+        blended_probability=0.51,
+        edge_pct=0.03,
+        ev_pct=0.04,
+        confidence="medium",
+        rationale="test",
+        source="matchup",
+        approved_at=KICKOFF - timedelta(hours=3),
+    )
+
+
+async def test_prop_settle_computes_clv_on_exact_point(session_factory):
+    from fairline.props import settle_prop_picks
+
+    async with session_factory() as session:
+        session.add(_prop_pick())
+        await session.commit()
+
+    summary = await settle_prop_picks(
+        [_snapshot()], session_factory, now=KICKOFF - timedelta(minutes=10)
+    )
+
+    assert summary == {"settled": 1, "point_moved": 0, "missed": 0, "pending": 0}
+    async with session_factory() as session:
+        pick = (await session.execute(select(Pick))).scalars().one()
+    assert pick.closing_price == -115
+    assert pick.closing_point == 275.5
+    over_raw = american_to_prob(-115)
+    under_raw = american_to_prob(-105)
+    fair_over = over_raw / (over_raw + under_raw)
+    assert pick.closing_probability == _pytest.approx(fair_over)
+    assert pick.clv == _pytest.approx(fair_over - american_to_prob(105))
+
+
+async def test_prop_settle_records_drift_without_clv(session_factory):
+    from fairline.props import settle_prop_picks
+
+    async with session_factory() as session:
+        session.add(_prop_pick(selection="Patrick Mahomes Over 270.5"))
+        await session.commit()
+
+    summary = await settle_prop_picks(
+        [_snapshot()], session_factory, now=KICKOFF - timedelta(minutes=10)
+    )
+
+    assert summary == {"settled": 0, "point_moved": 1, "missed": 0, "pending": 0}
+    async with session_factory() as session:
+        pick = (await session.execute(select(Pick))).scalars().one()
+    assert pick.closing_point == 275.5
+    assert pick.closing_price == -115
+    assert pick.clv is None
+
+
+async def test_prop_settle_respects_window_and_missing_players(session_factory):
+    from fairline.props import settle_prop_picks
+
+    async with session_factory() as session:
+        session.add(_prop_pick(pid="pp-early"))
+        session.add(_prop_pick(pid="pp-ghost", selection="Unknown Player Over 50.5"))
+        await session.commit()
+
+    early = await settle_prop_picks(
+        [_snapshot()], session_factory, now=KICKOFF - timedelta(hours=6)
+    )
+    assert early["pending"] == 2
+
+    late = await settle_prop_picks(
+        [_snapshot()], session_factory, now=KICKOFF - timedelta(minutes=10)
+    )
+    assert late["settled"] == 1
+    assert late["missed"] == 1
