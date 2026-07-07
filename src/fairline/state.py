@@ -153,6 +153,9 @@ class FairlineState(TypedDict):
     # WeatherAgent output: game_id -> {"wind_mph", "temp_f", "precip_prob"}
     game_weather: dict
 
+    # InjuryAgent output: team -> {"adjustment", "notes"}
+    team_injuries: dict
+
     # PickAgent output
     candidates: list[PickCandidate]
 

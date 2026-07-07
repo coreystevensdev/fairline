@@ -514,3 +514,39 @@ async def test_sim_agent_reads_rest_from_team_trends(session_factory):
     p_neutral = next(sl for sl in neutral["sim_lines"] if sl.market == "h2h").probability
     p_b2b = next(sl for sl in home_b2b["sim_lines"] if sl.market == "h2h").probability
     assert p_b2b < p_neutral
+
+
+async def test_sim_agent_applies_injury_adjustment(session_factory):
+    async with session_factory() as session:
+        for i in range(1, 5):
+            session.add(
+                GameResult(
+                    game_id=f"inj{i}",
+                    sport="americanfootball_nfl",
+                    home_team="Kansas City Chiefs",
+                    away_team="Denver Broncos",
+                    commence_time=NOW - timedelta(days=7 * i),
+                    home_score=27,
+                    away_score=20,
+                )
+            )
+        await session.commit()
+
+    game = GameSnapshot(
+        game_id="inj-up",
+        sport="americanfootball_nfl",
+        home_team="Kansas City Chiefs",
+        away_team="Denver Broncos",
+        commence_time=NOW + timedelta(days=2),
+        bookmakers=[],
+    )
+    base = {"sport": "americanfootball_nfl", "games": [game], "sim_lines": []}
+    healthy = await sim_agent(dict(base), session_factory=session_factory)
+    qb_out = await sim_agent(
+        {**base, "team_injuries": {"Kansas City Chiefs": {"adjustment": -5.5, "notes": ["QB Out"]}}},
+        session_factory=session_factory,
+    )
+
+    p_healthy = next(sl for sl in healthy["sim_lines"] if sl.market == "h2h").probability
+    p_qb_out = next(sl for sl in qb_out["sim_lines"] if sl.market == "h2h").probability
+    assert p_qb_out < p_healthy - 0.1

@@ -134,12 +134,14 @@ def _build_prompt(
     fair_lines: list[FairLine],
     team_trends: dict | None = None,
     game_weather: dict | None = None,
+    team_injuries: dict | None = None,
 ) -> str:
     lines_by_game: dict[str, list[FairLine]] = {}
     for fl in fair_lines:
         lines_by_game.setdefault(fl.game_id, []).append(fl)
     team_trends = team_trends or {}
     game_weather = game_weather or {}
+    team_injuries = team_injuries or {}
 
     sections = []
     for game in games:
@@ -156,6 +158,12 @@ def _build_prompt(
             if _format_trends(team_trends, t)
         ]
         trend_text = ("\n  Recent form: " + "; ".join(trend_lines)) if trend_lines else ""
+        inj_lines = []
+        for team in (game.home_team, game.away_team):
+            inj = team_injuries.get(team)
+            if inj:
+                inj_lines.append(f"{team}: " + ", ".join(inj["notes"][:4]))
+        inj_text = ("\n  Injuries: " + " | ".join(inj_lines)) if inj_lines else ""
         wx = game_weather.get(game.game_id)
         wx_text = ""
         if wx:
@@ -167,7 +175,7 @@ def _build_prompt(
         sections.append(
             f"GAME: {game.away_team} @ {game.home_team} -- {game.commence_time.strftime('%a %b %d %I:%M %p UTC')}\n"
             f"  game_id: {game.game_id}\n"
-            f"  Fair probabilities (no-vig):\n{fl_text}{trend_text}{wx_text}"
+            f"  Fair probabilities (no-vig):\n{fl_text}{trend_text}{wx_text}{inj_text}"
         )
 
     return (
@@ -194,7 +202,13 @@ async def pick_agent(state: FairlineState) -> dict:
         return {"candidates": [], "error": None}
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-    prompt = _build_prompt(games, fair_lines, state.get("team_trends"), state.get("game_weather"))
+    prompt = _build_prompt(
+        games,
+        fair_lines,
+        state.get("team_trends"),
+        state.get("game_weather"),
+        state.get("team_injuries"),
+    )
 
     resp = client.messages.create(
         model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),

@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![174 tests](https://img.shields.io/badge/tests-174-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![184 tests](https://img.shields.io/badge/tests-184-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -110,6 +110,8 @@ Two more inputs reach the pick agent the way a professional would check them, as
 
 **Schedule spots.** Rest days, back-to-back flags, and games-in-last-7 are computed from stored results (no new data source) and ride the same "Recent form" prompt line as trends. Rest is the most mispriced situational factor in the NBA, and it costs nothing to know.
 
+**Injuries.** An `injury_agent` node reads ESPN's public injury feed per league, and code (never the LLM) converts absences to bounded margin adjustments: an out NFL quarterback is worth about five and a half points, questionable counts half, everything is capped at eight per team, and every counted absence is listed in the pick prompt so the reviewer sees which name moved the number. The design doc planned LLM extraction here; the feed turned out to be structured JSON, so the extraction step needs no model at all.
+
 **Weather.** For outdoor NFL games inside the 16-day forecast horizon, a `weather_agent` node pulls the kickoff-hour wind, temperature, and precipitation from Open-Meteo (free, keyless). The reading lands in the pick prompt, and wind feeds a bounded totals adjustment in the sim: about a third of a point off the expected total per mph over 10, capped at 7 points. Domes are skipped; the adjustment is code, not narrative.
 
 The standing rule ties this together: Claude reads what the pipeline hands it and never invents a fact. A rationale citing 20 mph wind traces to a forecast the system actually fetched.
@@ -154,7 +156,7 @@ For each prop, the engine computes a pre-registered set of splits (last 5, last 
 fair 0.500 -> matchup 0.552; Over angles: last_5 3-2 over 250.5; last_10 7-3 over 250.5; season 9-5 over 250.5; vs_opponent 1-3 over 250.5
 ```
 
-Approved matchup picks grade automatically against box scores (`fairline grade` matches player, date, and stat; exact landings push) and earn their own row on the agent leaderboard. The splits are fixed in code, never searched per prop: letting anything hunt for the best-looking slice is the multiple-comparisons trap that makes every prop "8 of the last 10" at something.
+Approved matchup picks grade automatically against box scores (`fairline grade` matches player, date, and stat; exact landings push) and earn their own row on the agent leaderboard. Every matchup pick also records which angles fed it, and `python -m fairline angles` grades the angles themselves over settled picks: record, units, and average CLV per split. An angle that cannot show value over a real sample loses its place in the pre-registered set. No manual filter user audits their filters; this is the audit. The splits are fixed in code, never searched per prop: letting anything hunt for the best-looking slice is the multiple-comparisons trap that makes every prop "8 of the last 10" at something.
 
 ### The simulation model
 

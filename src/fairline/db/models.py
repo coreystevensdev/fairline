@@ -53,6 +53,8 @@ class Pick(Base):
     rationale: Mapped[str] = mapped_column(Text)
     # producing agent ("model", "steam", ...); the agent leaderboard groups on this
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="model", server_default="model")
+    # comma-separated split names that fed a matchup pick; NULL for other agents
+    angles: Mapped[str | None] = mapped_column(Text)
     approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     # Outcome fields -- filled by `fairline settle` (closing line) and `fairline grade` (result)
@@ -156,6 +158,7 @@ class SteamCandidate(Base):
     edge_pct: Mapped[float] = mapped_column(Float, nullable=False)
     ev_pct: Mapped[float] = mapped_column(Float, nullable=False)
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    angles: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending", server_default="pending")
 
 

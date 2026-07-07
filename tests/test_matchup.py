@@ -236,3 +236,60 @@ async def test_create_matchup_candidates_queues_and_approves(session_factory):
     async with session_factory() as session:
         pick = (await session.execute(select(Pick).where(Pick.id == pick_id))).scalars().one()
     assert pick.source == "matchup"
+
+
+async def test_candidates_record_their_angles_and_report_grades_them(session_factory):
+    from fairline.db.models import Pick, SteamCandidate
+    from fairline.matchup import angle_report, create_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+    from fairline.steam import approve_steam_candidate
+
+    async with session_factory() as session:
+        for w in range(1, 11):
+            session.add(_pg(w, 300.0))
+        await session.commit()
+
+    def _o(side, price):
+        return Outcome(name=side, price=price, point=275.5, description="Patrick Mahomes")
+
+    snapshot = GameSnapshot(
+        game_id="evt-1",
+        sport="americanfootball_nfl",
+        home_team="Kansas City Chiefs",
+        away_team="Las Vegas Raiders",
+        commence_time=NOW,
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="P", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[_o("Over", -110), _o("Under", -110)])
+            ]),
+            BookmakerOdds(key="draftkings", title="DK", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[_o("Over", 100), _o("Under", -120)])
+            ]),
+        ],
+    )
+    await create_matchup_candidates(session_factory, snapshot, min_edge=0.03)
+
+    async with session_factory() as session:
+        cand = (await session.execute(select(SteamCandidate))).scalars().one()
+    assert "last_10" in cand.angles
+    assert "vs_opponent" in cand.angles
+
+    pick_id = await approve_steam_candidate(session_factory, cand.id, "alice")
+    async with session_factory() as session:
+        pick = (await session.execute(select(Pick).where(Pick.id == pick_id))).scalars().one()
+        pick.result = "win"
+        pick.profit_units = 1.0
+        pick.clv = 0.015
+        await session.commit()
+
+    report = await angle_report(session_factory)
+
+    assert report["last_10"]["count"] == 1
+    assert report["last_10"]["avg_clv"] == pytest.approx(0.015)
+    assert report["last_10"]["units"] == pytest.approx(1.0)
+
+
+async def test_angle_report_ignores_ungraded_and_angleless_picks(session_factory):
+    from fairline.matchup import angle_report
+
+    assert await angle_report(session_factory) == {}

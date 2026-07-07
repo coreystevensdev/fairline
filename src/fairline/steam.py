@@ -388,6 +388,7 @@ async def approve_steam_candidate(session_factory, candidate_id: str, user_id: s
                 confidence=_confidence(cand.edge_pct),
                 rationale=cand.rationale,
                 source=cand.source,
+                angles=cand.angles,
                 approved_at=datetime.now(_tz.utc),
             )
         )

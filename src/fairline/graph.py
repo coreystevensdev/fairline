@@ -7,6 +7,9 @@ Topology:
   weather_agent
       |
       v
+  injury_agent
+      |
+      v
   trends_agent
       |
       v
@@ -41,6 +44,7 @@ from fairline.agents.odds import odds_agent
 from fairline.agents.pick import pick_agent
 from fairline.agents.validate import validate_agent
 from fairline.state import ApprovedPick, FairlineState
+from fairline.injuries import injury_agent
 from fairline.sim import sim_agent
 from fairline.weather import weather_agent
 from fairline.trends import trends_agent
@@ -96,6 +100,7 @@ def build_graph(client: httpx.AsyncClient, session_factory=None, checkpointer=No
 
     g.add_node("odds_agent", partial(odds_agent, client=client))
     g.add_node("weather_agent", partial(weather_agent, client=client))
+    g.add_node("injury_agent", partial(injury_agent, client=client))
     g.add_node("sim_agent", partial(sim_agent, session_factory=session_factory))
     g.add_node("trends_agent", partial(trends_agent, session_factory=session_factory))
     g.add_node("pick_agent", pick_agent)
@@ -104,7 +109,8 @@ def build_graph(client: httpx.AsyncClient, session_factory=None, checkpointer=No
 
     g.set_entry_point("odds_agent")
     g.add_conditional_edges("odds_agent", _route_after_odds)
-    g.add_edge("weather_agent", "trends_agent")
+    g.add_edge("weather_agent", "injury_agent")
+    g.add_edge("injury_agent", "trends_agent")
     g.add_edge("trends_agent", "sim_agent")
     g.add_edge("sim_agent", "pick_agent")
     g.add_edge("pick_agent", "hitl_review")

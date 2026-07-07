@@ -319,6 +319,7 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
     model = SPORT_MODELS[sport]
     game_weather = state.get("game_weather", {}) or {}
     team_trends = state.get("team_trends", {}) or {}
+    team_injuries = state.get("team_injuries", {}) or {}
 
     async with session_factory() as session:
         rows = (
@@ -353,12 +354,16 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
     for game in games:
         home_ctx = team_trends.get(game.home_team, {})
         away_ctx = team_trends.get(game.away_team, {})
+        home_inj = (team_injuries.get(game.home_team) or {}).get("adjustment", 0.0)
+        away_inj = (team_injuries.get(game.away_team) or {}).get("adjustment", 0.0)
         if model["family"] == "normal":
             expected = (
                 ratings.get(game.home_team, 0.0)
                 - ratings.get(game.away_team, 0.0)
                 + model["hfa"]
                 + rest_margin_adjustment(sport, home_ctx, away_ctx)
+                + home_inj
+                - away_inj
             )
             sigma = model["sigma_margin"]
             h2h_prob = _phi(expected / sigma)
@@ -377,12 +382,12 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
             lam_home = max(
                 0.2,
                 league_avg + h["off"] + a["def"] + model["hfa"] / 2
-                + rest_lambda_adjustment(sport, home_ctx),
+                + rest_lambda_adjustment(sport, home_ctx) + home_inj,
             )
             lam_away = max(
                 0.2,
                 league_avg + a["off"] + h["def"] - model["hfa"] / 2
-                + rest_lambda_adjustment(sport, away_ctx),
+                + rest_lambda_adjustment(sport, away_ctx) + away_inj,
             )
             h2h_prob = poisson_win_probability(lam_home, lam_away)
             cover = lambda point: poisson_cover_probability(lam_home, lam_away, point)

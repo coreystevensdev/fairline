@@ -251,6 +251,22 @@ async def _props(sport: str, markets: str, min_edge: float, max_events: int) -> 
         print(f"events={len(upcoming)} edges={total_edges}")
 
 
+async def _angles() -> None:
+    from fairline.db.session import get_session_factory
+    from fairline.matchup import angle_report
+
+    report = await angle_report(get_session_factory())
+    if not report:
+        print("no graded matchup picks yet")
+        return
+    for angle, s in sorted(report.items()):
+        clv = f"{s['avg_clv']:+.4f}" if s["avg_clv"] is not None else "n/a"
+        print(
+            f"{angle}: {s['wins']}-{s['losses']} units={s['units']:+.2f} "
+            f"avg_clv={clv} n={s['count']}"
+        )
+
+
 async def _agents() -> None:
     from fairline.clv import agent_report
     from fairline.db.session import get_session_factory
@@ -359,6 +375,7 @@ def main() -> None:
         help="props cost one API request per event; this caps the spend per scan (default 5)",
     )
     sub.add_parser("agents", help="per-agent leaderboard: record, avg CLV, units")
+    sub.add_parser("angles", help="per-angle records over graded matchup picks")
     backfill = sub.add_parser(
         "backfill-nfl", help="seed game_results (scores + closing lines) from nflverse"
     )
@@ -409,6 +426,8 @@ def main() -> None:
         asyncio.run(_sim_report(args.threshold))
     elif args.command == "agents":
         asyncio.run(_agents())
+    elif args.command == "angles":
+        asyncio.run(_angles())
     elif args.command == "trends":
         asyncio.run(_trends(args.team, args.last))
     elif args.command == "backfill-nfl":

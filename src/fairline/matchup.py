@@ -330,6 +330,9 @@ async def create_matchup_candidates(
                                 f"fair {market_fair:.3f} -> matchup {prob:.3f}; "
                                 + describe_splits(splits, side, point)
                             ),
+                            angles=",".join(
+                                name for name, (_, attempts) in splits.items() if attempts > 0
+                            ),
                             source="matchup",
                             status="pending",
                         )
@@ -339,3 +342,43 @@ async def create_matchup_candidates(
     if created:
         logger.info("matchup: %d prop candidates pending review", created)
     return created
+
+
+async def angle_report(session_factory) -> dict:
+    """Per-angle records over graded matchup picks: the filter audit.
+
+    An angle appears here every time it fed an approved pick; units and
+    record accumulate always, average CLV over the subset where a closing
+    number exists. Angles that cannot show value over a real sample lose
+    their place in the pre-registered set.
+    """
+    async with session_factory() as session:
+        picks = (
+            (
+                await session.execute(
+                    select(Pick).where(Pick.result.is_not(None), Pick.angles.is_not(None))
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    report: dict = {}
+    for pick in picks:
+        for angle in pick.angles.split(","):
+            bucket = report.setdefault(
+                angle, {"count": 0, "units": 0.0, "_clv": [], "wins": 0, "losses": 0}
+            )
+            bucket["count"] += 1
+            bucket["units"] += pick.profit_units or 0.0
+            if pick.clv is not None:
+                bucket["_clv"].append(pick.clv)
+            if pick.result == "win":
+                bucket["wins"] += 1
+            elif pick.result == "loss":
+                bucket["losses"] += 1
+
+    for bucket in report.values():
+        clv = bucket.pop("_clv")
+        bucket["avg_clv"] = sum(clv) / len(clv) if clv else None
+    return report
