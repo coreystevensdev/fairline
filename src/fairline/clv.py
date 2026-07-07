@@ -247,3 +247,34 @@ async def sim_clv_report(session_factory, disagree_threshold: float = 0.02) -> d
         }
 
     return {name: _summary(picks) for name, picks in buckets.items()}
+
+
+async def agent_report(session_factory) -> dict:
+    """Per-agent leaderboard over settled picks: count, avg CLV, units, record.
+
+    Every agent's picks flow through the same settlement and grading, so the
+    comparison is apples to apples; source is the byline, CLV is the grade.
+    """
+    async with session_factory() as session:
+        rows = (
+            (await session.execute(select(Pick).where(Pick.clv.is_not(None))))
+            .scalars()
+            .all()
+        )
+
+    buckets: dict[str, list] = {}
+    for pick in rows:
+        buckets.setdefault(pick.source, []).append(pick)
+
+    report = {}
+    for source, picks in sorted(buckets.items()):
+        wins = sum(1 for p in picks if p.result == "win")
+        losses = sum(1 for p in picks if p.result == "loss")
+        pushes = sum(1 for p in picks if p.result == "push")
+        report[source] = {
+            "count": len(picks),
+            "avg_clv": sum(p.clv for p in picks) / len(picks),
+            "profit_units": sum(p.profit_units or 0.0 for p in picks),
+            "record": f"{wins}-{losses}-{pushes}",
+        }
+    return report

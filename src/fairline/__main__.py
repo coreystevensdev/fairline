@@ -1,4 +1,4 @@
-"""Fairline CLI. Currently one job: closing-line settlement."""
+"""Fairline CLI: settlement, grading, line watching, users, and agent records."""
 
 from __future__ import annotations
 
@@ -8,14 +8,30 @@ import logging
 
 import httpx
 
+SPORT_CHOICES = [
+    "americanfootball_nfl",
+    "basketball_nba",
+    "baseball_mlb",
+    "icehockey_nhl",
+]
 
-async def _settle(window_minutes: int) -> None:
-    from fairline.clients.odds_api import fetch_nfl_odds
+
+async def _fetch_odds_for(client: httpx.AsyncClient, sport: str):
+    from fairline.clients.odds_api import fetch_odds
+
+    sports = SPORT_CHOICES if sport == "all" else [sport]
+    games = []
+    for s in sports:
+        games.extend(await fetch_odds(client, s))
+    return games
+
+
+async def _settle(window_minutes: int, sport: str) -> None:
     from fairline.clv import settle_closing_lines
     from fairline.db.session import get_session_factory
 
     async with httpx.AsyncClient() as client:
-        games = await fetch_nfl_odds(client)
+        games = await _fetch_odds_for(client, sport)
     summary = await settle_closing_lines(
         games, get_session_factory(), window_minutes=window_minutes
     )
@@ -24,11 +40,10 @@ async def _settle(window_minutes: int) -> None:
     )
 
 
-async def _watch(interval_seconds: int, window_hours: float, once: bool) -> None:
+async def _watch(interval_seconds: int, window_hours: float, once: bool, sport: str) -> None:
     import os
     from datetime import datetime, timezone
 
-    from fairline.clients.odds_api import fetch_nfl_odds
     from fairline.db.session import get_session_factory
     from fairline.steam import (
         format_steam_event,
@@ -42,7 +57,7 @@ async def _watch(interval_seconds: int, window_hours: float, once: bool) -> None
     async with httpx.AsyncClient() as client:
         while True:
             now = datetime.now(timezone.utc)
-            games = await fetch_nfl_odds(client)
+            games = await _fetch_odds_for(client, sport)
             upcoming = games_in_window(games, now=now, window_hours=window_hours)
             if not upcoming:
                 print(f"no games within {window_hours}h; exiting")
@@ -65,6 +80,37 @@ async def _watch(interval_seconds: int, window_hours: float, once: bool) -> None
             await asyncio.sleep(interval_seconds)
 
 
+async def _grade(days_from: int, sport: str) -> None:
+    from fairline.clients.odds_api import fetch_scores
+    from fairline.clv import grade_results
+    from fairline.db.session import get_session_factory
+
+    sports = SPORT_CHOICES if sport == "all" else [sport]
+    scores = []
+    async with httpx.AsyncClient() as client:
+        for s in sports:
+            scores.extend(await fetch_scores(client, s, days_from=days_from))
+    summary = await grade_results(scores, get_session_factory())
+    print(
+        f"graded={summary['graded']} pending={summary['pending']} missed={summary['missed']}"
+    )
+
+
+async def _agents() -> None:
+    from fairline.clv import agent_report
+    from fairline.db.session import get_session_factory
+
+    report = await agent_report(get_session_factory())
+    if not report:
+        print("no settled picks yet")
+        return
+    for source, s in report.items():
+        print(
+            f"{source}: {s['record']} avg_clv={s['avg_clv']:+.4f} "
+            f"units={s['profit_units']:+.2f} n={s['count']}"
+        )
+
+
 async def _sim_report(threshold: float) -> None:
     from fairline.clv import sim_clv_report
     from fairline.db.session import get_session_factory
@@ -85,16 +131,12 @@ async def _create_user(email: str) -> None:
     print("Store the key now; only its hash is kept. Re-running rotates it.")
 
 
-async def _grade(days_from: int) -> None:
-    from fairline.clients.odds_api import fetch_nfl_scores
-    from fairline.clv import grade_results
-    from fairline.db.session import get_session_factory
-
-    async with httpx.AsyncClient() as client:
-        scores = await fetch_nfl_scores(client, days_from=days_from)
-    summary = await grade_results(scores, get_session_factory())
-    print(
-        f"graded={summary['graded']} pending={summary['pending']} missed={summary['missed']}"
+def _add_sport_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--sport",
+        choices=SPORT_CHOICES + ["all"],
+        default="americanfootball_nfl",
+        help="league to operate on; 'all' costs one API request per league",
     )
 
 
@@ -111,6 +153,7 @@ def main() -> None:
         default=30,
         help="settle picks whose game starts within this many minutes (default 30)",
     )
+    _add_sport_arg(settle)
     grade = sub.add_parser(
         "grade", help="grade completed picks: win/loss/push and profit_units"
     )
@@ -120,6 +163,7 @@ def main() -> None:
         default=3,
         help="how many days back to fetch scores, max 3 (default 3)",
     )
+    _add_sport_arg(grade)
     create_user = sub.add_parser(
         "create-user", help="create a user (or rotate their key) and print the API key once"
     )
@@ -131,7 +175,7 @@ def main() -> None:
         "--interval-seconds",
         type=int,
         default=120,
-        help="seconds between polls; each poll costs one API request (default 120)",
+        help="seconds between polls; each poll costs one API request per league (default 120)",
     )
     watch.add_argument(
         "--window-hours",
@@ -142,6 +186,8 @@ def main() -> None:
     watch.add_argument(
         "--once", action="store_true", help="poll a single cycle and exit (cron mode)"
     )
+    _add_sport_arg(watch)
+    sub.add_parser("agents", help="per-agent leaderboard: record, avg CLV, units")
     sim_report = sub.add_parser(
         "sim-report", help="compare CLV on picks where the sim agreed vs disagreed with the market"
     )
@@ -153,15 +199,17 @@ def main() -> None:
     )
     args = parser.parse_args()
     if args.command == "settle":
-        asyncio.run(_settle(args.window_minutes))
+        asyncio.run(_settle(args.window_minutes, args.sport))
     elif args.command == "grade":
-        asyncio.run(_grade(args.days_from))
+        asyncio.run(_grade(args.days_from, args.sport))
     elif args.command == "create-user":
         asyncio.run(_create_user(args.email))
     elif args.command == "sim-report":
         asyncio.run(_sim_report(args.threshold))
+    elif args.command == "agents":
+        asyncio.run(_agents())
     elif args.command == "watch":
-        asyncio.run(_watch(args.interval_seconds, args.window_hours, args.once))
+        asyncio.run(_watch(args.interval_seconds, args.window_hours, args.once, args.sport))
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![93 tests](https://img.shields.io/badge/tests-93-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![99 tests](https://img.shields.io/badge/tests-99-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
-Agentic NFL betting research service that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared.
+Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
 
 ## Problem
 
@@ -20,7 +20,7 @@ The pipeline runs as a LangGraph StateGraph: fetch Pinnacle odds, strip vig to n
 
 ```mermaid
 flowchart TD
-    A[POST /api/runs] --> B[OddsAgent: fetch NFL odds]
+    A[POST /api/runs] --> B[OddsAgent: fetch league odds]
     B --> C[Compute no-vig fair probs from Pinnacle]
     C --> D[PickAgent: Claude forced tool call]
     D --> E{LangGraph interrupt}
@@ -71,7 +71,7 @@ A positive CLV means you beat the close. Sportsbooks use CLV to identify sharp b
 The settlement job captures closing lines:
 
 ```bash
-python -m fairline settle --window-minutes 30
+python -m fairline settle --window-minutes 30 --sport all
 ```
 
 It finds picks with no `closing_price` whose game starts within the window, pulls the current Pinnacle market, devigs it, and writes `closing_price`, `closing_probability`, and `clv`. Run it near kickoff (cron a few minutes before the day's first game).
@@ -79,7 +79,7 @@ It finds picks with no `closing_price` whose game starts within the window, pull
 After games finish, grade results:
 
 ```bash
-python -m fairline grade
+python -m fairline grade --sport all
 ```
 
 Grading pulls final scores (up to 3 days back, the API maximum), settles each pick against the number it was bet at, and writes `result` (win/loss/push) and `profit_units` for a 1-unit flat stake. Spreads grade against the margin plus the taken point, totals against the combined score, and exact landings push. The full performance query:
@@ -89,6 +89,21 @@ SELECT COUNT(*), AVG(clv), SUM(profit_units) FROM picks WHERE result IS NOT NULL
 ```
 
 Positive average CLV with a losing `profit_units` over a small sample means variance; negative CLV with a winning record means luck that will not hold.
+
+### Agent records
+
+Every pick is stamped with the agent that produced it (`source`), and the leaderboard grades each agent over settled picks:
+
+```bash
+python -m fairline agents
+```
+
+```
+model: 12-9-1 avg_clv=+0.0041 units=+1.87 n=22
+steam: 4-2-0 avg_clv=+0.0119 units=+1.64 n=6
+```
+
+Win rate is noisy and gameable; average CLV is the grade that matters, and it is the same standard for every agent. All four leagues flow through the same settlement and grading, so records are comparable across sports (`--sport all` on settle and grade covers every league in one cron entry, one API request per league).
 
 ### Blending an external simulation
 
@@ -122,7 +137,7 @@ Steam is a sharp, fast move at Pinnacle: informed money hitting the market. The 
 python -m fairline watch --interval-seconds 120 --window-hours 3
 ```
 
-Each cycle stores Pinnacle and retail prices for games kicking off within the window into `line_snapshots`, compares the newest sharp-book cycle against the recent baseline, and alerts on decisive moves: a no-vig probability jump of 2+ points inside ~10 minutes, or a spread crossing a key number (3 or 7, the most common NFL margins) toward the favorite. Slow drift does not fire; steam is velocity. Alerts print to stdout and, when `FAIRLINE_WEBHOOK_URL` is set, POST as JSON to that URL (Slack- and Discord-compatible payload shape):
+Each cycle stores Pinnacle and retail prices for games kicking off within the window into `line_snapshots`, compares the newest sharp-book cycle against the recent baseline, and alerts on decisive moves: a no-vig probability jump of 2+ points inside ~10 minutes, or an NFL spread crossing a key number (3 or 7, the most common football margins) toward the favorite. Key numbers are football facts, so other leagues run on the probability threshold alone. Slow drift does not fire; steam is velocity. Alerts print to stdout and, when `FAIRLINE_WEBHOOK_URL` is set, POST as JSON to that URL (Slack- and Discord-compatible payload shape):
 
 ```
 STEAM Kansas City Chiefs (spreads) -110 -> -125 point -2.5 -> -3.0 KEY prob +0.021 in 6m via pinnacle

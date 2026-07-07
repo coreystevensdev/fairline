@@ -321,3 +321,22 @@ async def test_sim_clv_report_splits_agree_and_disagree(session_factory):
     assert report["disagreed"]["count"] == 1
     assert report["disagreed"]["avg_clv"] == pytest.approx(-0.005)
     assert report["no_sim"]["count"] == 1
+
+
+async def test_agent_report_buckets_by_source(session_factory):
+    from fairline.clv import agent_report
+
+    async with session_factory() as session:
+        session.add(_pick(id="m1", source="model", clv=0.012, result="win", profit_units=0.93))
+        session.add(_pick(id="m2", source="model", clv=-0.004, result="loss", profit_units=-1.0))
+        session.add(_pick(id="s1", source="steam", clv=0.021, result="win", profit_units=0.91))
+        session.add(_pick(id="open", source="model"))  # unsettled -> excluded
+        await session.commit()
+
+    report = await agent_report(session_factory)
+
+    assert report["model"]["count"] == 2
+    assert report["model"]["avg_clv"] == pytest.approx(0.004)
+    assert report["model"]["record"] == "1-1-0"
+    assert report["steam"]["count"] == 1
+    assert report["steam"]["profit_units"] == pytest.approx(0.91)

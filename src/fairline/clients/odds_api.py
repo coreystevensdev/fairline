@@ -21,6 +21,13 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.the-odds-api.com/v4"
 
+SUPPORTED_SPORTS = {
+    "americanfootball_nfl",
+    "basketball_nba",
+    "baseball_mlb",
+    "icehockey_nhl",
+}
+
 # Pinnacle is the primary sharp-line reference. FanDuel/DraftKings as retail.
 SHARP_BOOKS = {"pinnacle"}
 RETAIL_BOOKS = {"fanduel", "draftkings", "betmgm", "caesars", "pointsbet"}
@@ -33,17 +40,20 @@ def _api_key() -> str:
     return key
 
 
-async def fetch_nfl_odds(
+async def fetch_odds(
     client: httpx.AsyncClient,
+    sport: str,
     markets: str = "h2h,spreads,totals",
     regions: str = "us",
     odds_format: str = "american",
 ) -> list[GameSnapshot]:
-    """Fetch current NFL odds from all enabled bookmakers.
+    """Fetch current odds for one sport from all enabled bookmakers.
 
     Returns an empty list when no games are scheduled (off-season).
     Raises httpx.HTTPStatusError on API errors (e.g., quota exceeded).
     """
+    if sport not in SUPPORTED_SPORTS:
+        raise ValueError(f"unsupported sport {sport!r}; supported: {sorted(SUPPORTED_SPORTS)}")
     params = {
         "apiKey": _api_key(),
         "regions": regions,
@@ -52,7 +62,7 @@ async def fetch_nfl_odds(
         "dateFormat": "iso",
     }
     resp = await client.get(
-        f"{_BASE}/sports/americanfootball_nfl/odds/",
+        f"{_BASE}/sports/{sport}/odds/",
         params=params,
         timeout=httpx.Timeout(30.0),
     )
@@ -136,15 +146,19 @@ def _parse_game(raw: dict) -> GameSnapshot | None:
     )
 
 
-async def fetch_nfl_scores(client: httpx.AsyncClient, days_from: int = 3) -> list[GameScore]:
-    """Fetch scores for recent and upcoming NFL games.
+async def fetch_scores(
+    client: httpx.AsyncClient, sport: str, days_from: int = 3
+) -> list[GameScore]:
+    """Fetch scores for one sport's recent and upcoming games.
 
     daysFrom reaches at most 3 days back (API maximum); games older than that
     are gone from the feed and can never be graded from this endpoint.
     """
+    if sport not in SUPPORTED_SPORTS:
+        raise ValueError(f"unsupported sport {sport!r}; supported: {sorted(SUPPORTED_SPORTS)}")
     params = {"apiKey": _api_key(), "daysFrom": days_from, "dateFormat": "iso"}
     resp = await client.get(
-        f"{_BASE}/sports/americanfootball_nfl/scores/",
+        f"{_BASE}/sports/{sport}/scores/",
         params=params,
         timeout=httpx.Timeout(30.0),
     )

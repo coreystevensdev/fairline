@@ -98,6 +98,7 @@ class FairLine(BaseModel):
 class PickCandidate(BaseModel):
     pick_id: str
     game_id: str
+    sport: str = "americanfootball_nfl"
     home_team: str
     away_team: str
     commence_time: datetime
@@ -113,6 +114,7 @@ class PickCandidate(BaseModel):
     ev_pct: float  # expected value as a % of wager
     confidence: Literal["high", "medium", "low"]
     rationale: str
+    source: str = "model"  # which agent produced this pick; the leaderboard groups by it
     risk_flags: list[str] = Field(default_factory=list)
     approved: bool | None = None
 

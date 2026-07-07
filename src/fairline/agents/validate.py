@@ -34,6 +34,7 @@ async def validate_agent(state: FairlineState, session_factory=None) -> dict:
                 id=ap.pick.pick_id,
                 user_id=ap.user_id,
                 run_id=run_id,
+                sport=ap.pick.sport,
                 game_id=ap.pick.game_id,
                 home_team=ap.pick.home_team,
                 away_team=ap.pick.away_team,
@@ -49,6 +50,7 @@ async def validate_agent(state: FairlineState, session_factory=None) -> dict:
                 ev_pct=ap.pick.ev_pct,
                 confidence=ap.pick.confidence,
                 rationale=ap.pick.rationale,
+                source=ap.pick.source,
                 approved_at=ap.approved_at,
             )
             # merge, not add: a crash between DB commit and checkpoint save makes

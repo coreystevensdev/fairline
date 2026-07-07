@@ -138,7 +138,7 @@ def _build_prompt(games: list[GameSnapshot], fair_lines: list[FairLine]) -> str:
         )
 
     return (
-        "You are a sharp sports betting analyst. Review the following NFL games and their no-vig fair probabilities "
+        "You are a sharp sports betting analyst. Review the following games and their no-vig fair probabilities "
         "derived from the sharp-line reference. Identify the highest-edge betting opportunities.\n\n"
         "For each recommended pick:\n"
         "- Market types: h2h (moneyline), spreads (against the spread), totals (over/under)\n"
@@ -215,6 +215,7 @@ async def pick_agent(state: FairlineState) -> dict:
             PickCandidate(
                 pick_id=str(uuid.uuid4()),
                 game_id=game_id,
+                sport=game.sport,
                 home_team=game.home_team,
                 away_team=game.away_team,
                 commence_time=game.commence_time,

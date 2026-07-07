@@ -106,8 +106,8 @@ async def test_record_snapshots_persists_rows(session_factory):
     assert {r.game_id for r in rows} == {"game-1"}
 
 
-def _rows(captured_at, price_a=-110, price_b=-110, point_a=-2.5, point_b=2.5, market="spreads"):
-    common = dict(game_id="game-1", book="pinnacle", market=market, captured_at=captured_at)
+def _rows(captured_at, price_a=-110, price_b=-110, point_a=-2.5, point_b=2.5, market="spreads", sport="americanfootball_nfl"):
+    common = dict(game_id="game-1", sport=sport, book="pinnacle", market=market, captured_at=captured_at)
     return [
         LineSnapshot(outcome="Kansas City Chiefs", price=price_a, point=point_a, **common),
         LineSnapshot(outcome="Las Vegas Raiders", price=price_b, point=point_b, **common),
@@ -206,3 +206,15 @@ async def test_scan_with_single_cycle_returns_nothing(session_factory):
         await session.commit()
 
     assert await scan_recent_steam(session_factory, lookback_minutes=12) == []
+
+
+def test_key_numbers_do_not_apply_outside_nfl():
+    from fairline.steam import detect_steam
+
+    old = _rows(NOW, point_a=-2.5, point_b=2.5)
+    new = _rows(NOW + timedelta(minutes=6), point_a=-3.0, point_b=3.0)
+    for rows in (old, new):
+        for r in rows:
+            r.sport = "basketball_nba"
+
+    assert detect_steam(old, new) == []

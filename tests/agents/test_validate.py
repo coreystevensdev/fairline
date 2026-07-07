@@ -107,3 +107,19 @@ async def test_validate_agent_no_factory_skips_gracefully():
     approved = _make_approved()
     result = await validate_agent(_state([approved]), session_factory=None)
     assert result == {}
+
+
+async def test_validate_agent_persists_source(session_factory):
+    await validate_agent(_state([_make_approved()]), session_factory=session_factory)
+
+    async with session_factory() as session:
+        pick = (await session.execute(select(Pick))).scalars().one()
+    assert pick.source == "model"
+
+
+async def test_validate_agent_persists_sport(session_factory):
+    await validate_agent(_state([_make_approved()]), session_factory=session_factory)
+
+    async with session_factory() as session:
+        pick = (await session.execute(select(Pick))).scalars().one()
+    assert pick.sport == "americanfootball_nfl"

@@ -10,7 +10,7 @@ import pytest
 import httpx
 import respx
 
-from fairline.clients.odds_api import fetch_nfl_odds, fetch_nfl_scores, fetch_sports, _parse_game
+from fairline.clients.odds_api import fetch_odds, fetch_scores, fetch_sports, _parse_game
 
 
 _FAKE_KEY = "test-api-key"
@@ -75,7 +75,7 @@ async def test_fetch_nfl_odds_happy_path():
         return_value=httpx.Response(200, json=[_NFL_GAME_FIXTURE])
     )
     async with httpx.AsyncClient() as client:
-        games = await fetch_nfl_odds(client)
+        games = await fetch_odds(client, "americanfootball_nfl")
     assert len(games) == 1
     game = games[0]
     assert game.game_id == "abc123"
@@ -91,7 +91,7 @@ async def test_fetch_nfl_odds_empty_off_season():
         return_value=httpx.Response(200, json=[])
     )
     async with httpx.AsyncClient() as client:
-        games = await fetch_nfl_odds(client)
+        games = await fetch_odds(client, "americanfootball_nfl")
     assert games == []
 
 
@@ -103,7 +103,7 @@ async def test_fetch_nfl_odds_quota_exceeded_raises():
     )
     async with httpx.AsyncClient() as client:
         with pytest.raises(httpx.HTTPStatusError):
-            await fetch_nfl_odds(client)
+            await fetch_odds(client, "americanfootball_nfl")
 
 
 @pytest.mark.asyncio
@@ -188,7 +188,7 @@ async def test_fetch_nfl_odds_skips_malformed_game():
         return_value=httpx.Response(200, json=[malformed, _NFL_GAME_FIXTURE])
     )
     async with httpx.AsyncClient() as client:
-        games = await fetch_nfl_odds(client)
+        games = await fetch_odds(client, "americanfootball_nfl")
     assert len(games) == 1
     assert games[0].game_id == "abc123"
 
@@ -222,7 +222,7 @@ async def test_fetch_nfl_scores_parses_final_scores():
         return_value=httpx.Response(200, json=[_NFL_SCORE_FIXTURE, upcoming])
     )
     async with httpx.AsyncClient() as client:
-        scores = await fetch_nfl_scores(client)
+        scores = await fetch_scores(client, "americanfootball_nfl")
 
     assert len(scores) == 2
     final = scores[0]
@@ -232,3 +232,27 @@ async def test_fetch_nfl_scores_parses_final_scores():
     assert final.away_score == 20
     assert scores[1].completed is False
     assert scores[1].home_score is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_odds_hits_the_requested_sport():
+    from fairline.clients.odds_api import fetch_odds
+
+    route = respx.get(f"{_ODDS_BASE}/sports/basketball_nba/odds/").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    async with httpx.AsyncClient() as client:
+        games = await fetch_odds(client, "basketball_nba")
+
+    assert route.called
+    assert games == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_odds_rejects_unknown_sport():
+    from fairline.clients.odds_api import fetch_odds
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(ValueError):
+            await fetch_odds(client, "cricket_ipl")

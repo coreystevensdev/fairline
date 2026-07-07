@@ -12,7 +12,7 @@ import uuid
 
 import httpx
 
-from fairline.clients.odds_api import SHARP_BOOKS, fetch_nfl_odds
+from fairline.clients.odds_api import SHARP_BOOKS, fetch_odds
 from fairline.state import (
     FairLine,
     GameSnapshot,
@@ -55,9 +55,10 @@ def _derive_fair_line(game: GameSnapshot, market_key: str, source_book: str) -> 
 
 async def odds_agent(state: FairlineState, client: httpx.AsyncClient) -> dict:
     """Fetch current NFL odds and compute fair lines from the sharp reference."""
-    logger.info("odds_agent: fetching NFL odds for date=%s", state.get("target_date"))
+    sport = state.get("sport", "americanfootball_nfl")
+    logger.info("odds_agent: fetching %s odds for date=%s", sport, state.get("target_date"))
     try:
-        games = await fetch_nfl_odds(client)
+        games = await fetch_odds(client, sport)
     except Exception as exc:
         logger.error("odds_agent: fetch failed: %s", exc)
         return {"error": f"Odds fetch failed: {exc}", "games": [], "fair_lines": []}

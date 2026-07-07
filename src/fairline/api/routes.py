@@ -65,6 +65,8 @@ class PickRecord(BaseModel):
     id: str
     user_id: str
     run_id: str
+    sport: str
+    source: str
     game_id: str
     home_team: str
     away_team: str
@@ -104,6 +106,13 @@ async def health():
 
 @router.post("/api/runs", response_model=StartRunResponse)
 async def start_run(req: StartRunRequest, user: Principal = Depends(require_user)):
+    from fairline.clients.odds_api import SUPPORTED_SPORTS
+
+    if req.sport not in SUPPORTED_SPORTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unsupported sport {req.sport!r}; supported: {sorted(SUPPORTED_SPORTS)}",
+        )
     run_id = str(uuid.uuid4())
     target_date = req.target_date or date.today().isoformat()
 

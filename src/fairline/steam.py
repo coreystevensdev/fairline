@@ -40,6 +40,7 @@ def snapshot_rows(games: list[GameSnapshot], captured_at: datetime) -> list[Line
                     rows.append(
                         LineSnapshot(
                             game_id=game.game_id,
+                            sport=game.sport,
                             book=bm.key,
                             market=mkt.key,
                             outcome=o.name,
@@ -70,7 +71,7 @@ async def record_snapshots(
     return len(rows)
 
 
-KEY_NUMBERS = (3.0, 7.0)  # most common NFL margins; a spread crossing one moves real win probability
+KEY_NUMBERS = (3.0, 7.0)  # most common NFL margins; NFL-only, gated by sport in detect_steam
 DEFAULT_PROB_THRESHOLD = 0.02
 DEFAULT_MAX_ELAPSED_SECONDS = 600.0
 
@@ -140,7 +141,8 @@ def detect_steam(
                 continue
             prob_move = new_fair[new_row.outcome] - old_fair[new_row.outcome]
             key_cross = (
-                new_row.market == "spreads"
+                new_row.sport == "americanfootball_nfl"
+                and new_row.market == "spreads"
                 and crossed_key_number(old_row.point, new_row.point)
                 and new_row.point is not None
                 and old_row.point is not None

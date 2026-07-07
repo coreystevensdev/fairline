@@ -32,6 +32,9 @@ class Pick(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     run_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    sport: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="americanfootball_nfl", server_default="americanfootball_nfl"
+    )
     game_id: Mapped[str] = mapped_column(String(255), nullable=False)
     home_team: Mapped[str] = mapped_column(String(100))
     away_team: Mapped[str] = mapped_column(String(100))
@@ -48,6 +51,8 @@ class Pick(Base):
     ev_pct: Mapped[float] = mapped_column(Float)
     confidence: Mapped[str] = mapped_column(String(20))
     rationale: Mapped[str] = mapped_column(Text)
+    # producing agent ("model", "steam", ...); the agent leaderboard groups on this
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="model", server_default="model")
     approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     # Outcome fields -- filled by `fairline settle` (closing line) and `fairline grade` (result)
@@ -75,6 +80,9 @@ class LineSnapshot(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     game_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    sport: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="americanfootball_nfl", server_default="americanfootball_nfl"
+    )
     book: Mapped[str] = mapped_column(String(100), nullable=False)
     market: Mapped[str] = mapped_column(String(50), nullable=False)
     outcome: Mapped[str] = mapped_column(String(255), nullable=False)
