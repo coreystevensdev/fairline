@@ -189,6 +189,7 @@ async def scan_recent_steam(
                     .where(LineSnapshot.book.in_(SHARP_BOOKS))
                     .distinct()
                     .order_by(LineSnapshot.captured_at.desc())
+                    .limit(48)  # recent cycles only; the table is unbounded
                 )
             )
             .scalars()

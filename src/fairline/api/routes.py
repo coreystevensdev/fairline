@@ -24,7 +24,7 @@ from langgraph.errors import GraphInterrupt
 
 from fairline.api.auth import Principal, require_user
 from fairline.api.main import get_graph, get_http_client
-from fairline.runs import create_run, fetch_run, update_run
+from fairline.runs import claim_run, create_run, fetch_run, update_run
 from fairline.db.models import Pick, User
 from fairline.db.session import get_session_factory
 from fairline.state import ApprovedPick, PickCandidate, SimLine, FairlineState
@@ -127,6 +127,8 @@ async def start_run(req: StartRunRequest, user: Principal = Depends(require_user
         "user_id": user.user_id,
         "sim_lines": req.sims,
         "team_trends": {},
+        "game_weather": {},
+        "team_injuries": {},
         "games": [],
         "fair_lines": [],
         "candidates": [],
@@ -213,7 +215,7 @@ async def approve_picks(run_id: str, req: ApprovePicksRequest, user: Principal =
     run = await fetch_run(registry, run_id)
     if not run or run["user_id"] != user.user_id:
         raise HTTPException(status_code=404, detail="Run not found")
-    if run["status"] != "awaiting_review":
+    if not await claim_run(registry, run_id, "awaiting_review", "processing"):
         raise HTTPException(status_code=409, detail=f"Run is {run['status']}, not awaiting_review")
 
     graph = get_graph()
@@ -252,8 +254,8 @@ async def list_picks(user: Principal = Depends(require_user), limit: int = Query
     """
     try:
         factory = get_session_factory()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
     async with factory() as session:
         q = (
@@ -297,8 +299,8 @@ async def list_steam_candidates(user: Principal = Depends(require_user)):
 
     try:
         factory = get_session_factory()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
     async with factory() as session:
         rows = (
@@ -321,8 +323,8 @@ async def approve_steam(candidate_id: str, user: Principal = Depends(require_use
 
     try:
         factory = get_session_factory()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
     pick_id = await approve_steam_candidate(factory, candidate_id, user.user_id)
     if pick_id is None:
@@ -336,8 +338,8 @@ async def reject_steam(candidate_id: str, user: Principal = Depends(require_user
 
     try:
         factory = get_session_factory()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
     if not await reject_steam_candidate(factory, candidate_id):
         raise HTTPException(status_code=404, detail="Candidate not found or already resolved")
@@ -358,8 +360,8 @@ async def team_trends(
 
     try:
         factory = get_session_factory()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
     async with factory() as session:
         results = (
@@ -386,7 +388,8 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         raise HTTPException(status_code=500, detail="Webhook secret not configured")
     try:
         event = stripe.Webhook.construct_event(payload, stripe_signature, webhook_secret)
-    except stripe.error.SignatureVerificationError:
+    except (ValueError, stripe.error.SignatureVerificationError):
+        # ValueError covers a missing or malformed Stripe-Signature header
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     event_id = event.get("id")
@@ -403,7 +406,11 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
         is_pro_grant = False
 
     if customer_id and is_pro_grant is not None:
-        factory = get_session_factory()
+        try:
+            factory = get_session_factory()
+        except RuntimeError:
+            logger.error("stripe: no database available for customer=%r", customer_id)
+            raise HTTPException(status_code=503, detail="Database unavailable")
         async with factory() as session:
             result = await session.execute(
                 select(User).where(User.stripe_customer_id == customer_id)

@@ -47,20 +47,29 @@ async def _settle(window_minutes: int, sport: str) -> None:
         # that actually hold an unsettled prop pick inside the window
         cutoff = datetime.now(timezone.utc) + timedelta(minutes=window_minutes)
         async with factory() as session:
-            rows = (
+            candidates = (
                 (
                     await session.execute(
-                        select(Pick.game_id, Pick.sport)
+                        select(Pick.game_id, Pick.sport, Pick.commence_time)
                         .where(
                             Pick.closing_price.is_(None),
                             Pick.market.in_(PROP_STAT_COLUMNS),
-                            Pick.commence_time <= cutoff.replace(tzinfo=None),
                         )
                         .distinct()
                     )
                 )
                 .all()
             )
+        # window filter in Python: naive-vs-timestamptz SQL comparisons behave
+        # differently across SQLite and Postgres, the same trap clv.py sidesteps
+        rows = []
+        for game_id, pick_sport, commence in candidates:
+            if commence is None:
+                continue
+            if commence.tzinfo is None:
+                commence = commence.replace(tzinfo=timezone.utc)
+            if commence <= cutoff:
+                rows.append((game_id, pick_sport))
         snapshots = []
         for game_id, pick_sport in rows:
             snap = await fetch_event_props(client, pick_sport, game_id)

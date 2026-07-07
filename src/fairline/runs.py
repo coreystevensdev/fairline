@@ -36,6 +36,30 @@ async def fetch_run(session_factory, run_id: str) -> dict | None:
     return {"run_id": run.id, "user_id": run.user_id, "status": run.status, "error": run.error}
 
 
+async def claim_run(session_factory, run_id: str, from_status: str, to_status: str) -> bool:
+    """Atomically move a run between statuses; False means someone else won.
+
+    Collapses the check-then-resume race on approve: two concurrent requests
+    both read awaiting_review, but only one flips it.
+    """
+    if session_factory is None:
+        record = _memory_runs.get(run_id)
+        if not record or record["status"] != from_status:
+            return False
+        record["status"] = to_status
+        return True
+    from sqlalchemy import update as sa_update
+
+    async with session_factory() as session:
+        result = await session.execute(
+            sa_update(Run)
+            .where(Run.id == run_id, Run.status == from_status)
+            .values(status=to_status)
+        )
+        await session.commit()
+        return result.rowcount == 1
+
+
 async def update_run(session_factory, run_id: str, status: str, error: str | None = None) -> None:
     if session_factory is None:
         record = _memory_runs.get(run_id)

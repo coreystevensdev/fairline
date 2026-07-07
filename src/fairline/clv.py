@@ -179,12 +179,20 @@ async def grade_results(scores: list[GameScore], session_factory) -> dict:
     endpoint reaches back at most 3 days) or unmatched selections count as
     missed and stay NULL.
     """
+    from fairline.matchup import PROP_STAT_COLUMNS
+
     scores_by_id = {s.game_id: s for s in scores}
 
     graded = pending = missed = 0
     async with session_factory() as session:
         rows = (
-            (await session.execute(select(Pick).where(Pick.result.is_(None))))
+            (
+                await session.execute(
+                    select(Pick).where(
+                        Pick.result.is_(None), Pick.market.not_in(PROP_STAT_COLUMNS)
+                    )
+                )
+            )
             .scalars()
             .all()
         )

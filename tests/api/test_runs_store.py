@@ -67,3 +67,23 @@ async def test_runs_survive_across_factory_sessions(session_factory):
     run = await fetch_run(session_factory, "r1")
     assert run is not None
     assert "r1" not in _memory_runs
+
+
+async def test_claim_run_is_atomic_per_status(session_factory):
+    from fairline.runs import claim_run
+
+    await create_run(session_factory, "r1", "alice")
+    await update_run(session_factory, "r1", "awaiting_review")
+
+    assert await claim_run(session_factory, "r1", "awaiting_review", "processing") is True
+    assert await claim_run(session_factory, "r1", "awaiting_review", "processing") is False
+
+
+async def test_claim_run_memory_fallback():
+    from fairline.runs import claim_run
+
+    await create_run(None, "r1", "alice")
+    await update_run(None, "r1", "awaiting_review")
+
+    assert await claim_run(None, "r1", "awaiting_review", "processing") is True
+    assert await claim_run(None, "r1", "awaiting_review", "processing") is False
