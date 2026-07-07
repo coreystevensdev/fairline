@@ -7,6 +7,8 @@ via the lifespan context so connections are pooled.
 
 from __future__ import annotations
 
+import logging
+import os
 from contextlib import asynccontextmanager
 
 import httpx
@@ -16,21 +18,37 @@ from fastapi.templating import Jinja2Templates
 
 from steambot.graph import build_graph
 
+logger = logging.getLogger(__name__)
+
 _http_client: httpx.AsyncClient | None = None
 _graph = None
 _templates: Jinja2Templates | None = None
+
+
+def resolve_session_factory():
+    """Session factory from DATABASE_URL, or None when running without a DB.
+
+    STEAMBOT_ENV=production turns the missing-DB fallback into a boot failure:
+    a prod deployment that silently skips pick persistence has no CLV history,
+    which defeats the point of the product.
+    """
+    try:
+        from steambot.db.session import get_session_factory
+        return get_session_factory()
+    except RuntimeError:
+        if os.environ.get("STEAMBOT_ENV", "").lower() == "production":
+            raise RuntimeError(
+                "STEAMBOT_ENV=production requires DATABASE_URL; refusing to boot without pick persistence"
+            ) from None
+        logger.warning("DATABASE_URL not set; picks will not be persisted")
+        return None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _http_client, _graph
     _http_client = httpx.AsyncClient()
-    try:
-        from steambot.db.session import get_session_factory
-        factory = get_session_factory()
-    except RuntimeError:
-        factory = None
-    _graph = build_graph(_http_client, session_factory=factory)
+    _graph = build_graph(_http_client, session_factory=resolve_session_factory())
     yield
     await _http_client.aclose()
     _http_client = None
