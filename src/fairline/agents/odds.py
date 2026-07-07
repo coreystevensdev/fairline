@@ -12,11 +12,11 @@ import uuid
 
 import httpx
 
-from steambot.clients.odds_api import SHARP_BOOKS, fetch_nfl_odds
-from steambot.state import (
+from fairline.clients.odds_api import SHARP_BOOKS, fetch_nfl_odds
+from fairline.state import (
     FairLine,
     GameSnapshot,
-    SteamBotState,
+    FairlineState,
     american_to_prob,
     remove_vig,
 )
@@ -53,7 +53,7 @@ def _derive_fair_line(game: GameSnapshot, market_key: str, source_book: str) -> 
     )
 
 
-async def odds_agent(state: SteamBotState, client: httpx.AsyncClient) -> dict:
+async def odds_agent(state: FairlineState, client: httpx.AsyncClient) -> dict:
     """Fetch current NFL odds and compute fair lines from the sharp reference."""
     logger.info("odds_agent: fetching NFL odds for date=%s", state.get("target_date"))
     try:

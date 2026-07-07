@@ -87,7 +87,7 @@ where the sim disagreed with the sharp line by 2 or more probability points.
 A ratings model built from public results will agree with Pinnacle most of
 the time, and the agreed bucket proves nothing. If the disagreed bucket does
 not show positive CLV over a meaningful sample, the correct response is to
-lower `STEAMBOT_SIM_WEIGHT`, not to tune the model until it agrees with
+lower `FAIRLINE_SIM_WEIGHT`, not to tune the model until it agrees with
 itself.
 
 ## Out of scope

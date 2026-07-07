@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "steambot"
+name = "fairline"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -27,7 +27,7 @@ dependencies = [
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "respx>=0.23", "httpx", "aiosqlite>=0.20"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/steambot"]
+packages = ["src/fairline"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

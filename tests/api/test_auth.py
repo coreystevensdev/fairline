@@ -6,8 +6,8 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from steambot.api.auth import authenticate, issue_api_key
-from steambot.db.models import Base
+from fairline.api.auth import authenticate, issue_api_key
+from fairline.db.models import Base
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ async def session_factory():
 
 async def test_valid_key_returns_principal(session_factory):
     user_id, key = await issue_api_key("alice@example.com", session_factory)
-    assert key.startswith("sb_")
+    assert key.startswith("fl_")
 
     principal = await authenticate(f"Bearer {key}", session_factory)
     assert principal.user_id == user_id
@@ -43,7 +43,7 @@ async def test_malformed_header_is_401(session_factory):
 
 async def test_unknown_key_is_401(session_factory):
     with pytest.raises(HTTPException) as exc:
-        await authenticate("Bearer sb_not-a-real-key", session_factory)
+        await authenticate("Bearer fl_not-a-real-key", session_factory)
     assert exc.value.status_code == 401
 
 

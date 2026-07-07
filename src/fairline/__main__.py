@@ -1,4 +1,4 @@
-"""SteamBot CLI. Currently one job: closing-line settlement."""
+"""Fairline CLI. Currently one job: closing-line settlement."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import httpx
 
 
 async def _settle(window_minutes: int) -> None:
-    from steambot.clients.odds_api import fetch_nfl_odds
-    from steambot.clv import settle_closing_lines
-    from steambot.db.session import get_session_factory
+    from fairline.clients.odds_api import fetch_nfl_odds
+    from fairline.clv import settle_closing_lines
+    from fairline.db.session import get_session_factory
 
     async with httpx.AsyncClient() as client:
         games = await fetch_nfl_odds(client)
@@ -28,9 +28,9 @@ async def _watch(interval_seconds: int, window_hours: float, once: bool) -> None
     import os
     from datetime import datetime, timezone
 
-    from steambot.clients.odds_api import fetch_nfl_odds
-    from steambot.db.session import get_session_factory
-    from steambot.steam import (
+    from fairline.clients.odds_api import fetch_nfl_odds
+    from fairline.db.session import get_session_factory
+    from fairline.steam import (
         format_steam_event,
         games_in_window,
         record_snapshots,
@@ -38,7 +38,7 @@ async def _watch(interval_seconds: int, window_hours: float, once: bool) -> None
     )
 
     factory = get_session_factory()
-    webhook_url = os.environ.get("STEAMBOT_WEBHOOK_URL", "")
+    webhook_url = os.environ.get("FAIRLINE_WEBHOOK_URL", "")
     async with httpx.AsyncClient() as client:
         while True:
             now = datetime.now(timezone.utc)
@@ -66,8 +66,8 @@ async def _watch(interval_seconds: int, window_hours: float, once: bool) -> None
 
 
 async def _sim_report(threshold: float) -> None:
-    from steambot.clv import sim_clv_report
-    from steambot.db.session import get_session_factory
+    from fairline.clv import sim_clv_report
+    from fairline.db.session import get_session_factory
 
     report = await sim_clv_report(get_session_factory(), disagree_threshold=threshold)
     for bucket, s in report.items():
@@ -76,8 +76,8 @@ async def _sim_report(threshold: float) -> None:
 
 
 async def _create_user(email: str) -> None:
-    from steambot.api.auth import issue_api_key
-    from steambot.db.session import get_session_factory
+    from fairline.api.auth import issue_api_key
+    from fairline.db.session import get_session_factory
 
     user_id, key = await issue_api_key(email, get_session_factory())
     print(f"user_id={user_id}")
@@ -86,9 +86,9 @@ async def _create_user(email: str) -> None:
 
 
 async def _grade(days_from: int) -> None:
-    from steambot.clients.odds_api import fetch_nfl_scores
-    from steambot.clv import grade_results
-    from steambot.db.session import get_session_factory
+    from fairline.clients.odds_api import fetch_nfl_scores
+    from fairline.clv import grade_results
+    from fairline.db.session import get_session_factory
 
     async with httpx.AsyncClient() as client:
         scores = await fetch_nfl_scores(client, days_from=days_from)
@@ -100,7 +100,7 @@ async def _grade(days_from: int) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    parser = argparse.ArgumentParser(prog="steambot")
+    parser = argparse.ArgumentParser(prog="fairline")
     sub = parser.add_subparsers(dest="command", required=True)
     settle = sub.add_parser(
         "settle", help="capture closing lines and compute CLV for unsettled picks"

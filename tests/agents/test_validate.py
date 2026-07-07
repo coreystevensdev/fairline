@@ -11,9 +11,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from steambot.agents.validate import validate_agent
-from steambot.db.models import Base, Pick
-from steambot.state import ApprovedPick, PickCandidate
+from fairline.agents.validate import validate_agent
+from fairline.db.models import Base, Pick
+from fairline.state import ApprovedPick, PickCandidate
 
 
 @pytest.fixture

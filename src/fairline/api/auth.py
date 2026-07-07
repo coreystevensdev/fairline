@@ -1,11 +1,11 @@
 """API key authentication.
 
-Keys are sb_-prefixed random tokens shown once at issue time; only the SHA-256
+Keys are fl_-prefixed random tokens shown once at issue time; only the SHA-256
 hash is stored. Identity always comes from the key, never from request fields,
 so ownership checks downstream compare against a server-derived principal.
 
 With no database configured (local demo), every request runs as the "demo"
-principal with no credentials. STEAMBOT_ENV=production refuses to boot without
+principal with no credentials. FAIRLINE_ENV=production refuses to boot without
 a database, so production always enforces keys.
 """
 
@@ -19,7 +19,7 @@ from typing import NamedTuple
 from fastapi import Header, HTTPException
 from sqlalchemy import select
 
-from steambot.db.models import User
+from fairline.db.models import User
 
 
 class Principal(NamedTuple):
@@ -54,7 +54,7 @@ async def authenticate(authorization: str | None, session_factory) -> Principal:
 
 async def require_user(authorization: str | None = Header(None)) -> Principal:
     """FastAPI dependency: resolve the caller from the Authorization header."""
-    from steambot.db.session import get_session_factory
+    from fairline.db.session import get_session_factory
 
     try:
         factory = get_session_factory()
@@ -69,7 +69,7 @@ async def issue_api_key(email: str, session_factory) -> tuple[str, str]:
     The plaintext key exists only in the return value; callers must show it
     once and discard it.
     """
-    key = f"sb_{secrets.token_urlsafe(32)}"
+    key = f"fl_{secrets.token_urlsafe(32)}"
     async with session_factory() as session:
         result = await session.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()

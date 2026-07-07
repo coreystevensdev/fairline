@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-import steambot.api.main  # noqa: F401 -- defines get_graph before routes import
-from steambot.api import routes
+import fairline.api.main  # noqa: F401 -- defines get_graph before routes import
+from fairline.api import routes
 
 
 class _FakeRequest:

@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from steambot.state import american_to_prob, remove_vig
+from fairline.state import american_to_prob, remove_vig
 
 DATASET = Path(__file__).parent / "dataset.jsonl"
 

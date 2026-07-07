@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from steambot.agents.pick import _sim_probability
-from steambot.state import GameSnapshot, SimLine
+from fairline.agents.pick import _sim_probability
+from fairline.state import GameSnapshot, SimLine
 
 GAME = GameSnapshot(
     game_id="game-1",

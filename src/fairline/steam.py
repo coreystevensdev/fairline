@@ -1,7 +1,7 @@
 """Steam detection: line-history capture and the move detector.
 
 Steam is a fast, decisive move at the sharp book. Seeing it requires history,
-so `steambot watch` polls the odds feed in a window before kickoff, stores
+so `fairline watch` polls the odds feed in a window before kickoff, stores
 per-book snapshots, and flags sharp moves against the recent baseline.
 """
 
@@ -11,9 +11,9 @@ import logging
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
-from steambot.clients.odds_api import RETAIL_BOOKS, SHARP_BOOKS
-from steambot.db.models import LineSnapshot
-from steambot.state import GameSnapshot, american_to_prob, remove_vig
+from fairline.clients.odds_api import RETAIL_BOOKS, SHARP_BOOKS
+from fairline.db.models import LineSnapshot
+from fairline.state import GameSnapshot, american_to_prob, remove_vig
 
 logger = logging.getLogger(__name__)
 

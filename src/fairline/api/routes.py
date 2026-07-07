@@ -1,4 +1,4 @@
-"""SteamBot API routes.
+"""Fairline API routes.
 
 GET  /health                  -- liveness check
 POST /api/runs                -- start a picks run (triggers odds + pick agents)
@@ -22,11 +22,11 @@ from sqlalchemy import desc, select
 
 from langgraph.errors import GraphInterrupt
 
-from steambot.api.auth import Principal, require_user
-from steambot.api.main import get_graph, get_http_client
-from steambot.db.models import Pick, User
-from steambot.db.session import get_session_factory
-from steambot.state import ApprovedPick, PickCandidate, SimLine, SteamBotState
+from fairline.api.auth import Principal, require_user
+from fairline.api.main import get_graph, get_http_client
+from fairline.db.models import Pick, User
+from fairline.db.session import get_session_factory
+from fairline.state import ApprovedPick, PickCandidate, SimLine, FairlineState
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ async def start_run(req: StartRunRequest, user: Principal = Depends(require_user
     run_id = str(uuid.uuid4())
     target_date = req.target_date or date.today().isoformat()
 
-    initial: SteamBotState = {
+    initial: FairlineState = {
         "sport": req.sport,
         "target_date": target_date,
         "user_id": user.user_id,

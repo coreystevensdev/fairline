@@ -1,9 +1,9 @@
 """Pick measurement: closing-line settlement and result grading.
 
 The free Odds API tier has no historical endpoint, so the closing line is the
-last sharp-book snapshot taken near kickoff. Run `python -m steambot settle`
+last sharp-book snapshot taken near kickoff. Run `python -m fairline settle`
 shortly before games start; picks whose window is missed keep clv NULL.
-`python -m steambot grade` fills result and profit_units from final scores.
+`python -m fairline grade` fills result and profit_units from final scores.
 
 CLV = no-vig closing probability - implied probability of the taken price.
 Positive means the bet beat the close, regardless of what the model thought.
@@ -17,9 +17,9 @@ from typing import NamedTuple
 
 from sqlalchemy import select
 
-from steambot.agents.odds import best_sharp_book
-from steambot.db.models import Pick
-from steambot.state import GameScore, GameSnapshot, american_to_prob, remove_vig
+from fairline.agents.odds import best_sharp_book
+from fairline.db.models import Pick
+from fairline.state import GameScore, GameSnapshot, american_to_prob, remove_vig
 
 logger = logging.getLogger(__name__)
 

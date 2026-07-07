@@ -1,7 +1,7 @@
-# SteamBot
+# Fairline
 
-[![CI](https://github.com/coreystevensdev/steambot/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/steambot/actions)
-[![93 tests](https://img.shields.io/badge/tests-93-brightgreen)](https://github.com/coreystevensdev/steambot/actions)
+[![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
+[![93 tests](https://img.shields.io/badge/tests-93-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic NFL betting research service that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared.
@@ -71,7 +71,7 @@ A positive CLV means you beat the close. Sportsbooks use CLV to identify sharp b
 The settlement job captures closing lines:
 
 ```bash
-python -m steambot settle --window-minutes 30
+python -m fairline settle --window-minutes 30
 ```
 
 It finds picks with no `closing_price` whose game starts within the window, pulls the current Pinnacle market, devigs it, and writes `closing_price`, `closing_probability`, and `clv`. Run it near kickoff (cron a few minutes before the day's first game).
@@ -79,7 +79,7 @@ It finds picks with no `closing_price` whose game starts within the window, pull
 After games finish, grade results:
 
 ```bash
-python -m steambot grade
+python -m fairline grade
 ```
 
 Grading pulls final scores (up to 3 days back, the API maximum), settles each pick against the number it was bet at, and writes `result` (win/loss/push) and `profit_units` for a 1-unit flat stake. Spreads grade against the margin plus the taken point, totals against the combined score, and exact landings push. The full performance query:
@@ -96,7 +96,7 @@ If you run your own simulation model (stats, matchups, injuries, lineups), pass 
 
 ```bash
 curl -s -X POST http://localhost:8000/api/runs \
-  -H "Authorization: Bearer $STEAMBOT_API_KEY" \
+  -H "Authorization: Bearer $FAIRLINE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"sport": "americanfootball_nfl", "sims": [
         {"home_team": "Kansas City Chiefs", "away_team": "Las Vegas Raiders",
@@ -104,12 +104,12 @@ curl -s -X POST http://localhost:8000/api/runs \
       ]}' | jq
 ```
 
-The blend is sharp-dominant: `blended = 0.75 * sharp + 0.25 * sim` by default (`STEAMBOT_SIM_WEIGHT` overrides). Edge and EV are computed from the blended probability, so a sim that disagrees with the market changes which picks surface. Picks without a matching sim use the sharp line alone.
+The blend is sharp-dominant: `blended = 0.75 * sharp + 0.25 * sim` by default (`FAIRLINE_SIM_WEIGHT` overrides). Edge and EV are computed from the blended probability, so a sim that disagrees with the market changes which picks surface. Picks without a matching sim use the sharp line alone.
 
 The weight is not a matter of taste; the sim has to earn it:
 
 ```bash
-python -m steambot sim-report
+python -m fairline sim-report
 ```
 
 This splits settled picks into sim-agreed and sim-disagreed against the sharp line and compares average CLV. The disagreed bucket is the only place a sim can prove it carries information the market lacks. If that bucket's CLV is not positive over a real sample, the sim is adding confidence, not information, and its weight should go down, not up.
@@ -119,10 +119,10 @@ This splits settled picks into sim-agreed and sim-disagreed against the sharp li
 Steam is a sharp, fast move at Pinnacle: informed money hitting the market. The watcher records line history and flags it:
 
 ```bash
-python -m steambot watch --interval-seconds 120 --window-hours 3
+python -m fairline watch --interval-seconds 120 --window-hours 3
 ```
 
-Each cycle stores Pinnacle and retail prices for games kicking off within the window into `line_snapshots`, compares the newest sharp-book cycle against the recent baseline, and alerts on decisive moves: a no-vig probability jump of 2+ points inside ~10 minutes, or a spread crossing a key number (3 or 7, the most common NFL margins) toward the favorite. Slow drift does not fire; steam is velocity. Alerts print to stdout and, when `STEAMBOT_WEBHOOK_URL` is set, POST as JSON to that URL (Slack- and Discord-compatible payload shape):
+Each cycle stores Pinnacle and retail prices for games kicking off within the window into `line_snapshots`, compares the newest sharp-book cycle against the recent baseline, and alerts on decisive moves: a no-vig probability jump of 2+ points inside ~10 minutes, or a spread crossing a key number (3 or 7, the most common NFL margins) toward the favorite. Slow drift does not fire; steam is velocity. Alerts print to stdout and, when `FAIRLINE_WEBHOOK_URL` is set, POST as JSON to that URL (Slack- and Discord-compatible payload shape):
 
 ```
 STEAM Kansas City Chiefs (spreads) -110 -> -125 point -2.5 -> -3.0 KEY prob +0.021 in 6m via pinnacle
@@ -142,12 +142,12 @@ docker compose up
 
 API is available at `http://localhost:8000`. The `/health` endpoint confirms the service is running.
 
-Without `DATABASE_URL` the service still runs picks end to end but skips persistence, logging a warning at boot. Set `STEAMBOT_ENV=production` to turn that fallback into a boot failure; a deployment that silently drops pick history has no CLV record.
+Without `DATABASE_URL` the service still runs picks end to end but skips persistence, logging a warning at boot. Set `FAIRLINE_ENV=production` to turn that fallback into a boot failure; a deployment that silently drops pick history has no CLV record.
 
 **Create a user and API key:**
 
 ```bash
-python -m steambot create-user --email you@example.com
+python -m fairline create-user --email you@example.com
 ```
 
 The key is printed once; only its SHA-256 hash is stored. Identity comes from the key on every request, so there is no user_id field anywhere in the API. Without `DATABASE_URL` (local demo), requests run as a fixed `demo` principal and no key is needed.
@@ -156,7 +156,7 @@ The key is printed once; only its SHA-256 hash is stored. Identity comes from th
 
 ```bash
 curl -s -X POST http://localhost:8000/api/runs \
-  -H "Authorization: Bearer $STEAMBOT_API_KEY" \
+  -H "Authorization: Bearer $FAIRLINE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"sport": "americanfootball_nfl"}' | jq
 ```
@@ -165,7 +165,7 @@ curl -s -X POST http://localhost:8000/api/runs \
 
 ```bash
 curl -s -X POST http://localhost:8000/api/runs/{run_id}/approve \
-  -H "Authorization: Bearer $STEAMBOT_API_KEY" \
+  -H "Authorization: Bearer $FAIRLINE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"approved_pick_ids": ["pick-uuid-1", "pick-uuid-2"]}' | jq
 ```
@@ -177,7 +177,7 @@ Add your LangSmith key to `.env` to enable run tracing:
 ```bash
 LANGCHAIN_API_KEY=lsv2_pt_...
 LANGCHAIN_TRACING_V2=true
-LANGCHAIN_PROJECT=steambot
+LANGCHAIN_PROJECT=fairline
 ```
 
 Each picks run produces two traces in the LangSmith UI:
@@ -222,7 +222,7 @@ To write a JSON report:
 python -m eval --out eval/report.json
 ```
 
-**What is tested:** vig removal accuracy (symmetric and asymmetric markets), EV formula correctness for favorites and underdogs, CLV sign convention (positive = beat the closing line), edge filter threshold compliance, and pick structural validity (required fields, confidence enum, non-negative edge). The harness imports directly from `steambot.state` so any change to the production math functions fails the eval immediately.
+**What is tested:** vig removal accuracy (symmetric and asymmetric markets), EV formula correctness for favorites and underdogs, CLV sign convention (positive = beat the closing line), edge filter threshold compliance, and pick structural validity (required fields, confidence enum, non-negative edge). The harness imports directly from `fairline.state` so any change to the production math functions fails the eval immediately.
 
 ---
 
@@ -230,9 +230,9 @@ python -m eval --out eval/report.json
 
 1. **Rate limiting is per-instance.** There is no shared Redis counter across multiple app replicas. Fine for the current demo scale; documented trade-off.
 2. **Off-season returns empty.** The Odds API returns no NFL games May through July. The `/api/runs` endpoint returns an empty `candidates` list rather than an error, which is correct but may confuse first-time callers.
-3. **Closing line is a near-kickoff snapshot, not the true close.** The free Odds API tier has no historical endpoint, so `python -m steambot settle` records whatever Pinnacle shows when it runs. If the job does not run inside its window before kickoff, `clv` stays `null` for those picks; there is no backfill. Line movement in the final seconds before kickoff is also invisible to a snapshot taken minutes earlier.
+3. **Closing line is a near-kickoff snapshot, not the true close.** The free Odds API tier has no historical endpoint, so `python -m fairline settle` records whatever Pinnacle shows when it runs. If the job does not run inside its window before kickoff, `clv` stays `null` for those picks; there is no backfill. Line movement in the final seconds before kickoff is also invisible to a snapshot taken minutes earlier.
 4. **The clv number ignores point drift.** A spread bet at -3.5 that closes at -4.0 is compared by price only. The closing line is stored in `closing_point`, so the drift is queryable (`SELECT selection, closing_point FROM picks`), but it is not folded into the single `clv` float; converting a half point of NFL spread movement to probability requires a push-chart model that is out of scope.
-5. **Grading has a 3-day window.** The scores endpoint reaches back at most 3 days. A pick whose game finished more than 3 days before `steambot grade` runs stays ungraded permanently; run it at least twice a week during the season.
+5. **Grading has a 3-day window.** The scores endpoint reaches back at most 3 days. A pick whose game finished more than 3 days before `fairline grade` runs stays ungraded permanently; run it at least twice a week during the season.
 6. **API keys are minimal.** One key per user, no scopes, no expiry, rotation only via `create-user` re-run. Lookups compare SHA-256 hashes through a unique index; there is no per-key rate limiting, so a leaked key is fully capable until rotated.
 7. **MemorySaver in tests.** The graph uses `MemorySaver` (in-process) for local dev. Production requires `PostgresSaver` for checkpoints to survive restarts; the switchover is a one-line change in `graph.py`.
-8. **The sim weight is static.** `STEAMBOT_SIM_WEIGHT` applies uniformly to every pick and only changes when an operator reads `sim-report` and decides to change it. A calibrated system would fit the weight from the disagreement-bucket CLV; here that judgment is deliberately left to the human.
+8. **The sim weight is static.** `FAIRLINE_SIM_WEIGHT` applies uniformly to every pick and only changes when an operator reads `sim-report` and decides to change it. A calibrated system would fit the weight from the disagreement-bucket CLV; here that judgment is deliberately left to the human.

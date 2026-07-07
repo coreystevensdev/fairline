@@ -15,7 +15,7 @@ from datetime import datetime
 
 import httpx
 
-from steambot.state import BookmakerOdds, GameScore, GameSnapshot, MarketOdds, Outcome
+from fairline.state import BookmakerOdds, GameScore, GameSnapshot, MarketOdds, Outcome
 
 logger = logging.getLogger(__name__)
 

@@ -13,14 +13,14 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from steambot.clv import (
+from fairline.clv import (
     closing_line_for_selection,
     grade_pick,
     grade_results,
     settle_closing_lines,
 )
-from steambot.db.models import Base, Pick
-from steambot.state import (
+from fairline.db.models import Base, Pick
+from fairline.state import (
     BookmakerOdds,
     GameScore,
     GameSnapshot,
@@ -301,7 +301,7 @@ def test_closing_line_h2h_has_no_point():
 
 
 async def test_sim_clv_report_splits_agree_and_disagree(session_factory):
-    from steambot.clv import sim_clv_report
+    from fairline.clv import sim_clv_report
 
     async with session_factory() as session:
         # sim agreed with the sharp line (|sim - sharp| < threshold), beat the close

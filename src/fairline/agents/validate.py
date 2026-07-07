@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import logging
 
-from steambot.state import SteamBotState
+from fairline.state import FairlineState
 
 logger = logging.getLogger(__name__)
 
 
-async def validate_agent(state: SteamBotState, session_factory=None) -> dict:
+async def validate_agent(state: FairlineState, session_factory=None) -> dict:
     """Persist approved picks to the picks table for CLV tracking."""
     approved = state.get("approved_picks", [])
     if not approved:
@@ -25,7 +25,7 @@ async def validate_agent(state: SteamBotState, session_factory=None) -> dict:
         logger.warning("validate_agent: no session factory configured, skipping DB write")
         return {}
 
-    from steambot.db.models import Pick
+    from fairline.db.models import Pick
 
     run_id = state.get("run_id", "")
     async with session_factory() as session:

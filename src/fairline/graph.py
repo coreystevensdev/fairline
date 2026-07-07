@@ -1,4 +1,4 @@
-"""SteamBot LangGraph state machine.
+"""Fairline LangGraph state machine.
 
 Topology:
   odds_agent
@@ -28,13 +28,13 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
-from steambot.agents.odds import odds_agent
-from steambot.agents.pick import pick_agent
-from steambot.agents.validate import validate_agent
-from steambot.state import ApprovedPick, SteamBotState
+from fairline.agents.odds import odds_agent
+from fairline.agents.pick import pick_agent
+from fairline.agents.validate import validate_agent
+from fairline.state import ApprovedPick, FairlineState
 
 
-async def _hitl_review(state: SteamBotState) -> dict:
+async def _hitl_review(state: FairlineState) -> dict:
     """HITL checkpoint: pause graph, surface candidates to the user for approval.
 
     The API layer calls graph.invoke({...}, config={"thread_id": ...}) to start
@@ -67,20 +67,20 @@ async def _hitl_review(state: SteamBotState) -> dict:
     return {"approved_picks": approved_picks}
 
 
-def _route_after_odds(state: SteamBotState) -> str:
+def _route_after_odds(state: FairlineState) -> str:
     if state.get("error"):
         return END
     return "pick_agent"
 
 
 def build_graph(client: httpx.AsyncClient, session_factory=None, checkpointer=None) -> StateGraph:
-    """Compile and return the SteamBot LangGraph.
+    """Compile and return the Fairline LangGraph.
 
     Pass a shared httpx.AsyncClient so nodes that make HTTP calls share a pool.
     Pass session_factory for validate_agent to write picks to the DB.
     Pass a checkpointer (MemorySaver or PostgresSaver) for HITL persistence.
     """
-    g = StateGraph(SteamBotState)
+    g = StateGraph(FairlineState)
 
     g.add_node("odds_agent", partial(odds_agent, client=client))
     g.add_node("pick_agent", pick_agent)

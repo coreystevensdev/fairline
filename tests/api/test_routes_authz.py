@@ -12,9 +12,9 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-import steambot.api.main  # noqa: F401 -- load main first; it defines get_graph before importing routes
-from steambot.api import routes
-from steambot.api.auth import Principal
+import fairline.api.main  # noqa: F401 -- load main first; it defines get_graph before importing routes
+from fairline.api import routes
+from fairline.api.auth import Principal
 
 ALICE = Principal(user_id="alice", is_pro=False)
 MALLORY = Principal(user_id="mallory", is_pro=False)

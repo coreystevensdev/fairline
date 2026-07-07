@@ -10,8 +10,8 @@ from datetime import datetime
 
 import pytest
 
-from steambot.agents.odds import best_sharp_book, _derive_fair_line
-from steambot.state import (
+from fairline.agents.odds import best_sharp_book, _derive_fair_line
+from fairline.state import (
     BookmakerOdds,
     GameSnapshot,
     MarketOdds,

@@ -1,6 +1,6 @@
-"""LangGraph state schema and Pydantic models for SteamBot.
+"""LangGraph state schema and Pydantic models for Fairline.
 
-All agent nodes operate on SteamBotState. The HITL interrupt checkpoint
+All agent nodes operate on FairlineState. The HITL interrupt checkpoint
 lives between generate_picks and finalize_picks; the graph saves its state
 to PostgresSaver so the approval session survives server restarts.
 """
@@ -69,7 +69,7 @@ def blend_probability(sharp_prob: float, sim_prob: float | None, sim_weight: flo
     """Weighted blend of the sharp no-vig probability and a simulation estimate.
 
     Sharp-dominant by design: the sim earns weight only through demonstrated
-    CLV on picks where it disagreed with the market (see `steambot sim-report`).
+    CLV on picks where it disagreed with the market (see `fairline sim-report`).
     """
     if sim_prob is None:
         return sharp_prob
@@ -132,7 +132,7 @@ class BetSlip(BaseModel):
     prepared_at: datetime
 
 
-class SteamBotState(TypedDict):
+class FairlineState(TypedDict):
     # Input
     sport: str
     target_date: str  # ISO date, e.g., "2026-01-15"

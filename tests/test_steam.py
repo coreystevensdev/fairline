@@ -8,9 +8,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from steambot.db.models import Base, LineSnapshot
-from steambot.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
-from steambot.steam import games_in_window, record_snapshots, snapshot_rows
+from fairline.db.models import Base, LineSnapshot
+from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+from fairline.steam import games_in_window, record_snapshots, snapshot_rows
 
 NOW = datetime(2026, 1, 15, 17, 0, tzinfo=timezone.utc)
 
@@ -116,29 +116,29 @@ def _rows(captured_at, price_a=-110, price_b=-110, point_a=-2.5, point_b=2.5, ma
 
 class TestCrossedKeyNumber:
     def test_crossing_three(self):
-        from steambot.steam import crossed_key_number
+        from fairline.steam import crossed_key_number
 
         assert crossed_key_number(-2.5, -3.5) is True
 
     def test_landing_on_seven(self):
-        from steambot.steam import crossed_key_number
+        from fairline.steam import crossed_key_number
 
         assert crossed_key_number(-6.5, -7.0) is True
 
     def test_move_between_keys(self):
-        from steambot.steam import crossed_key_number
+        from fairline.steam import crossed_key_number
 
         assert crossed_key_number(-7.5, -8.5) is False
 
     def test_no_move(self):
-        from steambot.steam import crossed_key_number
+        from fairline.steam import crossed_key_number
 
         assert crossed_key_number(-2.5, -2.5) is False
 
 
 class TestDetectSteam:
     def test_prob_move_over_threshold_fires(self):
-        from steambot.steam import detect_steam
+        from fairline.steam import detect_steam
 
         old = _rows(NOW, price_a=-110, price_b=-110, market="h2h", point_a=None, point_b=None)
         new = _rows(NOW + timedelta(minutes=6), price_a=-125, price_b=105, market="h2h", point_a=None, point_b=None)
@@ -153,7 +153,7 @@ class TestDetectSteam:
         assert e.crossed_key is False
 
     def test_small_move_is_silent(self):
-        from steambot.steam import detect_steam
+        from fairline.steam import detect_steam
 
         old = _rows(NOW, price_a=-110, price_b=-110)
         new = _rows(NOW + timedelta(minutes=6), price_a=-112, price_b=-108)
@@ -161,7 +161,7 @@ class TestDetectSteam:
         assert detect_steam(old, new) == []
 
     def test_stale_baseline_is_ignored(self):
-        from steambot.steam import detect_steam
+        from fairline.steam import detect_steam
 
         old = _rows(NOW, price_a=-110, price_b=-110, market="h2h", point_a=None, point_b=None)
         new = _rows(NOW + timedelta(minutes=45), price_a=-130, price_b=110, market="h2h", point_a=None, point_b=None)
@@ -169,7 +169,7 @@ class TestDetectSteam:
         assert detect_steam(old, new) == []
 
     def test_key_number_crossing_fires_without_price_move(self):
-        from steambot.steam import detect_steam
+        from fairline.steam import detect_steam
 
         old = _rows(NOW, point_a=-2.5, point_b=2.5)
         new = _rows(NOW + timedelta(minutes=6), point_a=-3.0, point_b=3.0)
@@ -185,7 +185,7 @@ class TestDetectSteam:
 
 
 async def test_scan_recent_steam_compares_latest_against_baseline(session_factory):
-    from steambot.steam import scan_recent_steam
+    from fairline.steam import scan_recent_steam
 
     async with session_factory() as session:
         session.add_all(_rows(NOW - timedelta(minutes=8), price_a=-110, price_b=-110, market="h2h", point_a=None, point_b=None))
@@ -199,7 +199,7 @@ async def test_scan_recent_steam_compares_latest_against_baseline(session_factor
 
 
 async def test_scan_with_single_cycle_returns_nothing(session_factory):
-    from steambot.steam import scan_recent_steam
+    from fairline.steam import scan_recent_steam
 
     async with session_factory() as session:
         session.add_all(_rows(NOW))

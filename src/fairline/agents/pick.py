@@ -19,14 +19,14 @@ from datetime import datetime
 
 import anthropic
 
-from steambot.clients.odds_api import RETAIL_BOOKS
-from steambot.state import (
+from fairline.clients.odds_api import RETAIL_BOOKS
+from fairline.state import (
     BookmakerOdds,
     FairLine,
     GameSnapshot,
     PickCandidate,
     SimLine,
-    SteamBotState,
+    FairlineState,
     american_to_prob,
     blend_probability,
 )
@@ -68,7 +68,7 @@ _DEFAULT_SIM_WEIGHT = 0.25  # sharp-dominant until the sim proves CLV on disagre
 
 def _sim_weight() -> float:
     try:
-        return float(os.environ.get("STEAMBOT_SIM_WEIGHT", _DEFAULT_SIM_WEIGHT))
+        return float(os.environ.get("FAIRLINE_SIM_WEIGHT", _DEFAULT_SIM_WEIGHT))
     except ValueError:
         return _DEFAULT_SIM_WEIGHT
 
@@ -151,7 +151,7 @@ def _build_prompt(games: list[GameSnapshot], fair_lines: list[FairLine]) -> str:
     )
 
 
-async def pick_agent(state: SteamBotState) -> dict:
+async def pick_agent(state: FairlineState) -> dict:
     """Generate pick candidates using Claude. Returns picks to the state for HITL review."""
     games = state.get("games", [])
     fair_lines = state.get("fair_lines", [])

@@ -17,7 +17,7 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    # SHA-256 of the sb_ API key; the plaintext is shown once at issue and never stored
+    # SHA-256 of the fl_ API key; the plaintext is shown once at issue and never stored
     api_key_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255))
     is_pro: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -50,7 +50,7 @@ class Pick(Base):
     rationale: Mapped[str] = mapped_column(Text)
     approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
-    # Outcome fields -- filled by `steambot settle` (closing line) and `steambot grade` (result)
+    # Outcome fields -- filled by `fairline settle` (closing line) and `fairline grade` (result)
     closing_price: Mapped[int | None] = mapped_column(Integer)
     # closing spread/total line; NULL for h2h. Makes point drift (-3.5 -> -4.0) queryable
     closing_point: Mapped[float | None] = mapped_column(Float)

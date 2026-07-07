@@ -10,7 +10,7 @@ import pytest
 import httpx
 import respx
 
-from steambot.clients.odds_api import fetch_nfl_odds, fetch_nfl_scores, fetch_sports, _parse_game
+from fairline.clients.odds_api import fetch_nfl_odds, fetch_nfl_scores, fetch_sports, _parse_game
 
 
 _FAKE_KEY = "test-api-key"
