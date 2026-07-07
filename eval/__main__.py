@@ -23,9 +23,7 @@ from steambot.state import american_to_prob, remove_vig
 DATASET = Path(__file__).parent / "dataset.jsonl"
 
 
-# ---------------------------------------------------------------------------
 # Math under test -- mirrors pick.py _compute_ev and state.py functions
-# ---------------------------------------------------------------------------
 
 
 def compute_ev(blended_prob: float, american_price: int) -> float:
@@ -45,9 +43,7 @@ def compute_edge(blended_prob: float, american_price: int) -> float:
     return blended_prob - implied
 
 
-# ---------------------------------------------------------------------------
 # Result types
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -87,9 +83,7 @@ class EvalReport:
         return categories
 
 
-# ---------------------------------------------------------------------------
 # Case runners
-# ---------------------------------------------------------------------------
 
 
 def _near(a: float, b: float, tol: float) -> bool:
@@ -270,9 +264,7 @@ RUNNERS = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 
 def load_dataset(path: Path) -> list[dict]:
