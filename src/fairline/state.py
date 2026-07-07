@@ -17,7 +17,8 @@ from typing_extensions import TypedDict
 class Outcome(BaseModel):
     name: str
     price: int  # American odds
-    point: float | None = None  # spread or total line
+    point: float | None = None  # spread, total, or prop line
+    description: str | None = None  # player name on prop markets
 
 
 class MarketOdds(BaseModel):

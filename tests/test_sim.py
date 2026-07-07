@@ -299,3 +299,103 @@ async def test_sim_agent_emits_totals_line(session_factory):
     assert totals[0].selection == "Over 44.5"
     # every game totals 50 against a 44.5 line; the model should lean over
     assert totals[0].probability > 0.6
+
+
+class TestSportModels:
+    def test_nba_uses_tighter_margin_sigma(self):
+        from fairline.sim import SPORT_MODELS, win_probability_for
+
+        nba = SPORT_MODELS["basketball_nba"]
+        # equal teams at home: phi(2.5 / 11.5) = 0.586
+        p = win_probability_for("basketball_nba", nba["hfa"])
+        assert p == pytest.approx(0.5861, abs=0.002)
+
+    def test_poisson_even_matchup_is_a_coin_flip(self):
+        # home edge enters via the lambdas, not this function: equal rates = 0.5
+        from fairline.sim import poisson_win_probability
+
+        assert poisson_win_probability(3.0, 3.0) == pytest.approx(0.5, abs=1e-9)
+
+    def test_poisson_stronger_team_wins_more(self):
+        from fairline.sim import poisson_win_probability
+
+        assert poisson_win_probability(4.0, 2.5) > 0.65
+
+    def test_poisson_total_over_probability(self):
+        from fairline.sim import poisson_over_probability
+
+        # lambda 6.0 vs 5.5 line: P(total >= 6) with Poisson(6) = 1 - CDF(5) = 0.5543
+        assert poisson_over_probability(6.0, 5.5) == pytest.approx(0.5543, abs=0.002)
+
+    def test_poisson_cover_probability_puck_line(self):
+        from fairline.sim import poisson_cover_probability
+
+        # home -1.5 needs a 2+ goal win; favorites do that well under half the time
+        p = poisson_cover_probability(3.5, 2.5, -1.5)
+        assert 0.25 < p < 0.55
+
+
+async def test_sim_agent_covers_nba_with_normal_family(session_factory):
+    async with session_factory() as session:
+        for i in range(1, 7):
+            session.add(
+                GameResult(
+                    game_id=f"nba{i}",
+                    sport="basketball_nba",
+                    home_team="Boston Celtics",
+                    away_team="Washington Wizards",
+                    commence_time=NOW - timedelta(days=3 * i),
+                    home_score=120,
+                    away_score=100,
+                )
+            )
+        await session.commit()
+
+    game = GameSnapshot(
+        game_id="nba-up",
+        sport="basketball_nba",
+        home_team="Boston Celtics",
+        away_team="Washington Wizards",
+        commence_time=NOW + timedelta(days=1),
+        bookmakers=[],
+    )
+    state = {"sport": "basketball_nba", "games": [game], "sim_lines": []}
+
+    out = await sim_agent(state, session_factory=session_factory)
+
+    h2h = [sl for sl in out["sim_lines"] if sl.market == "h2h"]
+    assert len(h2h) == 1
+    assert h2h[0].probability > 0.7
+
+
+async def test_sim_agent_covers_nhl_with_poisson_family(session_factory):
+    async with session_factory() as session:
+        for i in range(1, 7):
+            session.add(
+                GameResult(
+                    game_id=f"nhl{i}",
+                    sport="icehockey_nhl",
+                    home_team="Boston Bruins",
+                    away_team="San Jose Sharks",
+                    commence_time=NOW - timedelta(days=3 * i),
+                    home_score=4,
+                    away_score=2,
+                )
+            )
+        await session.commit()
+
+    game = GameSnapshot(
+        game_id="nhl-up",
+        sport="icehockey_nhl",
+        home_team="Boston Bruins",
+        away_team="San Jose Sharks",
+        commence_time=NOW + timedelta(days=1),
+        bookmakers=[],
+    )
+    state = {"sport": "icehockey_nhl", "games": [game], "sim_lines": []}
+
+    out = await sim_agent(state, session_factory=session_factory)
+
+    h2h = [sl for sl in out["sim_lines"] if sl.market == "h2h"]
+    assert len(h2h) == 1
+    assert h2h[0].probability > 0.6

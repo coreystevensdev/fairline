@@ -148,6 +148,35 @@ async def _trends(team: str, last_n: int) -> None:
     print(f"{team}: {t['su']} SU, {t['ats']} ATS, {t['ou']} O/U (last {t['n']})")
 
 
+async def _props(sport: str, markets: str, min_edge: float, max_events: int) -> None:
+    from datetime import datetime, timezone
+
+    from fairline.clients.odds_api import fetch_event_props, fetch_odds
+    from fairline.props import find_prop_edges
+
+    async with httpx.AsyncClient() as client:
+        games = await fetch_odds(client, sport)
+        now = datetime.now(timezone.utc)
+        upcoming = sorted(
+            (g for g in games if g.commence_time > now), key=lambda g: g.commence_time
+        )[:max_events]
+        if not upcoming:
+            print("no upcoming events")
+            return
+        total_edges = 0
+        for game in upcoming:
+            snap = await fetch_event_props(client, sport, game.game_id, markets=markets)
+            if snap is None:
+                continue
+            for e in find_prop_edges(snap, min_edge=min_edge):
+                total_edges += 1
+                print(
+                    f"{game.away_team} @ {game.home_team}  {e.player} {e.side} {e.point:g} "
+                    f"({e.market}) {e.price:+d} at {e.book}  fair={e.fair_prob:.3f} edge={e.edge_pct:+.3f}"
+                )
+        print(f"events={len(upcoming)} edges={total_edges}")
+
+
 async def _agents() -> None:
     from fairline.clv import agent_report
     from fairline.db.session import get_session_factory
@@ -239,6 +268,22 @@ def main() -> None:
         "--once", action="store_true", help="poll a single cycle and exit (cron mode)"
     )
     _add_sport_arg(watch)
+    props = sub.add_parser(
+        "props", help="scan player props for retail prices lagging the sharp fair number"
+    )
+    _add_sport_arg(props)
+    props.add_argument(
+        "--markets",
+        default="player_pass_yds,player_rush_yds,player_reception_yds,player_receptions",
+        help="comma-separated prop market keys",
+    )
+    props.add_argument("--min-edge", type=float, default=0.03)
+    props.add_argument(
+        "--max-events",
+        type=int,
+        default=5,
+        help="props cost one API request per event; this caps the spend per scan (default 5)",
+    )
     sub.add_parser("agents", help="per-agent leaderboard: record, avg CLV, units")
     backfill = sub.add_parser(
         "backfill-nfl", help="seed game_results (scores + closing lines) from nflverse"
@@ -274,6 +319,8 @@ def main() -> None:
         asyncio.run(_trends(args.team, args.last))
     elif args.command == "backfill-nfl":
         asyncio.run(_backfill_nfl(args.seasons))
+    elif args.command == "props":
+        asyncio.run(_props(args.sport, args.markets, args.min_edge, args.max_events))
     elif args.command == "watch":
         asyncio.run(_watch(args.interval_seconds, args.window_hours, args.once, args.sport))
 

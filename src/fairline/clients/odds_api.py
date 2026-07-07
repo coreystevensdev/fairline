@@ -127,6 +127,7 @@ def _parse_game(raw: dict) -> GameSnapshot | None:
                             name=name,
                             price=int(price),
                             point=float(o["point"]) if o.get("point") is not None else None,
+                            description=o.get("description"),
                         )
                     )
                 except (ValueError, TypeError):
@@ -207,6 +208,38 @@ def _parse_score(raw: dict) -> GameScore | None:
         home_score=home_score,
         away_score=away_score,
     )
+
+
+DEFAULT_PROP_MARKETS = "player_pass_yds,player_rush_yds,player_reception_yds,player_receptions"
+
+
+async def fetch_event_props(
+    client: httpx.AsyncClient,
+    sport: str,
+    event_id: str,
+    markets: str = DEFAULT_PROP_MARKETS,
+) -> GameSnapshot | None:
+    """Fetch player prop odds for one event.
+
+    Props live on a per-event endpoint, so unlike the game odds fetch this
+    costs one request per event per call; callers budget accordingly.
+    """
+    if sport not in SUPPORTED_SPORTS:
+        raise ValueError(f"unsupported sport {sport!r}; supported: {sorted(SUPPORTED_SPORTS)}")
+    params = {
+        "apiKey": _api_key(),
+        "regions": "us",
+        "markets": markets,
+        "oddsFormat": "american",
+        "dateFormat": "iso",
+    }
+    resp = await client.get(
+        f"{_BASE}/sports/{sport}/events/{event_id}/odds",
+        params=params,
+        timeout=httpx.Timeout(30.0),
+    )
+    resp.raise_for_status()
+    return _parse_game(resp.json())
 
 
 async def fetch_sports(client: httpx.AsyncClient) -> list[dict]:

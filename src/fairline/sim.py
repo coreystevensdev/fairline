@@ -31,6 +31,16 @@ SIGMA_TOTAL = 10.0
 ELO_K = 0.06
 SEASON_CARRYOVER = 2 / 3  # regress a third of each rating away between seasons
 
+# Per-sport model families. Normal margins fit high-scoring sports; goals and
+# runs are count data, so NHL and MLB use a double-Poisson scoring model.
+SPORT_MODELS = {
+    "americanfootball_nfl": {"family": "normal", "sigma_margin": 13.5, "sigma_total": 10.0, "hfa": 2.0},
+    "basketball_nba": {"family": "normal", "sigma_margin": 11.5, "sigma_total": 18.0, "hfa": 2.5},
+    "icehockey_nhl": {"family": "poisson", "hfa": 0.15},
+    "baseball_mlb": {"family": "poisson", "hfa": 0.12},
+}
+_POISSON_GRID = 31  # scores 0..30 cover NHL and MLB comfortably
+
 # nflverse team codes to The Odds API's full names. Codes for 2021+ seasons;
 # relocated-franchise legacy codes (OAK, SD, STL) are deliberately absent.
 NFL_TEAMS = {
@@ -62,9 +72,55 @@ def cover_probability(expected_margin: float, team_point: float) -> float:
     return _phi((expected_margin + team_point) / SIGMA_MARGIN)
 
 
-def over_probability(expected: float, line: float) -> float:
-    """P(total > line) under Normal(expected, SIGMA_TOTAL)."""
-    return _phi((expected - line) / SIGMA_TOTAL)
+def over_probability(expected: float, line: float, sigma: float = SIGMA_TOTAL) -> float:
+    """P(total > line) under Normal(expected, sigma)."""
+    return _phi((expected - line) / sigma)
+
+
+def win_probability_for(sport: str, expected_margin: float) -> float:
+    sigma = SPORT_MODELS[sport]["sigma_margin"]
+    return _phi(expected_margin / sigma)
+
+
+def _poisson_pmf(lam: float, k: int) -> float:
+    return math.exp(-lam) * lam**k / math.factorial(k)
+
+
+def poisson_win_probability(lam_home: float, lam_away: float) -> float:
+    """P(home wins) under independent Poisson scores, 0..30 each.
+
+    Regulation ties cannot stand in NHL or MLB; the tie mass splits by
+    relative strength, a rough stand-in for overtime and extras.
+    """
+    home_p = [_poisson_pmf(lam_home, k) for k in range(_POISSON_GRID)]
+    away_p = [_poisson_pmf(lam_away, k) for k in range(_POISSON_GRID)]
+    win = tie = 0.0
+    for h in range(_POISSON_GRID):
+        for a in range(_POISSON_GRID):
+            joint = home_p[h] * away_p[a]
+            if h > a:
+                win += joint
+            elif h == a:
+                tie += joint
+    return win + tie * (lam_home / (lam_home + lam_away))
+
+
+def poisson_cover_probability(lam_home: float, lam_away: float, home_point: float) -> float:
+    """P(home margin + home_point > 0) on the double-Poisson grid."""
+    home_p = [_poisson_pmf(lam_home, k) for k in range(_POISSON_GRID)]
+    away_p = [_poisson_pmf(lam_away, k) for k in range(_POISSON_GRID)]
+    cover = 0.0
+    for h in range(_POISSON_GRID):
+        for a in range(_POISSON_GRID):
+            if (h - a) + home_point > 0:
+                cover += home_p[h] * away_p[a]
+    return cover
+
+
+def poisson_over_probability(lam_total: float, line: float) -> float:
+    """P(total > line); the total of independent Poissons is Poisson."""
+    cdf = sum(_poisson_pmf(lam_total, k) for k in range(int(line) + 1))
+    return 1.0 - cdf
 
 
 def build_scoring_rates(games: list[dict]) -> tuple[dict, float]:
@@ -108,7 +164,13 @@ def expected_total(rates: dict, league_avg: float, home: str, away: str) -> floa
 
 
 def season_of(when: datetime) -> int:
-    """NFL season a date belongs to; January playoff games are prior-season."""
+    """Season a date belongs to, using the August boundary.
+
+    Exact for NFL. For NBA and NHL (October to June) it splits midseason at
+    New Year, which only affects the ratings' between-season regression;
+    scoring rates already filter to the latest label and stay coherent.
+    MLB (March to October) maps cleanly.
+    """
     return when.year if when.month >= 8 else when.year - 1
 
 
@@ -217,8 +279,9 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
     caller_lines: list[SimLine] = list(state.get("sim_lines", []))
     games = state.get("games", [])
     sport = state.get("sport", "americanfootball_nfl")
-    if not games or session_factory is None or sport != "americanfootball_nfl":
+    if not games or session_factory is None or sport not in SPORT_MODELS:
         return {"sim_lines": caller_lines}
+    model = SPORT_MODELS[sport]
 
     async with session_factory() as session:
         rows = (
@@ -245,15 +308,31 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
         }
         for r in rows
     ]
-    ratings = build_ratings(sim_input)
+    ratings = build_ratings(sim_input, hfa=model["hfa"]) if model["family"] == "normal" else {}
     rates, league_avg = build_scoring_rates(sim_input)
 
     covered = {(sl.home_team, sl.away_team, sl.market) for sl in caller_lines}
     model_lines: list[SimLine] = []
     for game in games:
-        expected = (
-            ratings.get(game.home_team, 0.0) - ratings.get(game.away_team, 0.0) + HFA_POINTS
-        )
+        if model["family"] == "normal":
+            expected = (
+                ratings.get(game.home_team, 0.0) - ratings.get(game.away_team, 0.0) + model["hfa"]
+            )
+            sigma = model["sigma_margin"]
+            h2h_prob = _phi(expected / sigma)
+            cover = lambda point: _phi((expected + point) / sigma)
+            exp_total = expected_total(rates, league_avg, game.home_team, game.away_team)
+            over = lambda line: over_probability(exp_total, line, model["sigma_total"])
+        else:
+            zero = {"off": 0.0, "def": 0.0}
+            h = rates.get(game.home_team, zero)
+            a = rates.get(game.away_team, zero)
+            lam_home = max(0.2, league_avg + h["off"] + a["def"] + model["hfa"] / 2)
+            lam_away = max(0.2, league_avg + a["off"] + h["def"] - model["hfa"] / 2)
+            h2h_prob = poisson_win_probability(lam_home, lam_away)
+            cover = lambda point: poisson_cover_probability(lam_home, lam_away, point)
+            over = lambda line: poisson_over_probability(lam_home + lam_away, line)
+
         if (game.home_team, game.away_team, "h2h") not in covered:
             model_lines.append(
                 SimLine(
@@ -261,7 +340,7 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
                     away_team=game.away_team,
                     market="h2h",
                     selection=game.home_team,
-                    probability=win_probability(expected),
+                    probability=h2h_prob,
                 )
             )
         points = _market_points(game, "spreads")
@@ -273,19 +352,18 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
                     away_team=game.away_team,
                     market="spreads",
                     selection=f"{game.home_team} {home_point:+g}",
-                    probability=cover_probability(expected, home_point),
+                    probability=cover(home_point),
                 )
             )
         total_line = _market_points(game, "totals").get("Over")
         if total_line is not None and (game.home_team, game.away_team, "totals") not in covered:
-            exp_total = expected_total(rates, league_avg, game.home_team, game.away_team)
             model_lines.append(
                 SimLine(
                     home_team=game.home_team,
                     away_team=game.away_team,
                     market="totals",
                     selection=f"Over {total_line:g}",
-                    probability=over_probability(exp_total, total_line),
+                    probability=over(total_line),
                 )
             )
 
