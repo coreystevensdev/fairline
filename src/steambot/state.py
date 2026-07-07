@@ -40,6 +40,16 @@ class GameSnapshot(BaseModel):
     bookmakers: list[BookmakerOdds]
 
 
+class GameScore(BaseModel):
+    """Final or in-progress score from the Odds API scores endpoint."""
+    game_id: str
+    completed: bool
+    home_team: str
+    away_team: str
+    home_score: int | None = None
+    away_score: int | None = None
+
+
 def american_to_prob(odds: int) -> float:
     """Convert American odds to raw implied probability (before vig removal)."""
     if odds > 0:

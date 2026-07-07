@@ -13,9 +13,21 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from steambot.clv import closing_line_for_selection, settle_closing_lines
+from steambot.clv import (
+    closing_line_for_selection,
+    grade_pick,
+    grade_results,
+    settle_closing_lines,
+)
 from steambot.db.models import Base, Pick
-from steambot.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome, american_to_prob
+from steambot.state import (
+    BookmakerOdds,
+    GameScore,
+    GameSnapshot,
+    MarketOdds,
+    Outcome,
+    american_to_prob,
+)
 
 KICKOFF = datetime(2026, 1, 15, 20, 0, tzinfo=timezone.utc)
 
@@ -155,3 +167,104 @@ async def test_settle_ignores_already_settled_picks(session_factory):
     )
 
     assert summary == {"settled": 0, "missed": 0, "pending": 0}
+
+
+def _score(home: int = 27, away: int = 20, completed: bool = True) -> GameScore:
+    return GameScore(
+        game_id="game-1",
+        completed=completed,
+        home_team="Kansas City Chiefs",
+        away_team="Las Vegas Raiders",
+        home_score=home,
+        away_score=away,
+    )
+
+
+class TestGradePick:
+    def test_spread_cover_wins(self):
+        # Chiefs -3.5, won by 7
+        result = grade_pick("spreads", "Kansas City Chiefs -3.5", -108, _score(27, 20))
+        assert result == ("win", pytest.approx(100 / 108))
+
+    def test_spread_failed_cover_loses(self):
+        # Chiefs -3.5, won by 3
+        result = grade_pick("spreads", "Kansas City Chiefs -3.5", -108, _score(23, 20))
+        assert result == ("loss", -1.0)
+
+    def test_spread_exact_margin_pushes(self):
+        result = grade_pick("spreads", "Kansas City Chiefs -3.0", -110, _score(23, 20))
+        assert result == ("push", 0.0)
+
+    def test_underdog_plus_points_wins_on_close_loss(self):
+        result = grade_pick("spreads", "Las Vegas Raiders +3.5", 105, _score(23, 20))
+        assert result == ("win", pytest.approx(1.05))
+
+    def test_total_over_wins(self):
+        result = grade_pick("totals", "Over 44.5", -110, _score(27, 20))
+        assert result == ("win", pytest.approx(100 / 110))
+
+    def test_total_under_loses(self):
+        result = grade_pick("totals", "Under 44.5", -110, _score(27, 20))
+        assert result == ("loss", -1.0)
+
+    def test_total_on_the_number_pushes(self):
+        result = grade_pick("totals", "Over 47.0", -110, _score(27, 20))
+        assert result == ("push", 0.0)
+
+    def test_h2h_winner(self):
+        result = grade_pick("h2h", "Kansas City Chiefs", -165, _score(27, 20))
+        assert result == ("win", pytest.approx(100 / 165))
+
+    def test_h2h_tie_pushes(self):
+        result = grade_pick("h2h", "Kansas City Chiefs", -165, _score(20, 20))
+        assert result == ("push", 0.0)
+
+    def test_unknown_team_returns_none(self):
+        assert grade_pick("h2h", "Denver Broncos", -110, _score()) is None
+
+    def test_malformed_spread_selection_returns_none(self):
+        assert grade_pick("spreads", "Kansas City Chiefs", -110, _score()) is None
+
+
+async def test_grade_results_writes_result_and_profit(session_factory):
+    async with session_factory() as session:
+        session.add(_pick())
+        await session.commit()
+
+    summary = await grade_results([_score(27, 20)], session_factory)
+
+    assert summary == {"graded": 1, "pending": 0, "missed": 0}
+    async with session_factory() as session:
+        pick = (await session.execute(select(Pick))).scalars().one()
+    assert pick.result == "win"
+    assert pick.profit_units == pytest.approx(100 / 108)
+
+
+async def test_grade_results_incomplete_game_is_pending(session_factory):
+    async with session_factory() as session:
+        session.add(_pick())
+        await session.commit()
+
+    summary = await grade_results([_score(completed=False)], session_factory)
+
+    assert summary == {"graded": 0, "pending": 1, "missed": 0}
+
+
+async def test_grade_results_absent_game_is_missed(session_factory):
+    async with session_factory() as session:
+        session.add(_pick(game_id="game-gone"))
+        await session.commit()
+
+    summary = await grade_results([_score()], session_factory)
+
+    assert summary == {"graded": 0, "pending": 0, "missed": 1}
+
+
+async def test_grade_results_skips_already_graded(session_factory):
+    async with session_factory() as session:
+        session.add(_pick(result="loss", profit_units=-1.0))
+        await session.commit()
+
+    summary = await grade_results([_score()], session_factory)
+
+    assert summary == {"graded": 0, "pending": 0, "missed": 0}

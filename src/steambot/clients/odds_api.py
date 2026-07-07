@@ -15,7 +15,7 @@ from datetime import datetime
 
 import httpx
 
-from steambot.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+from steambot.state import BookmakerOdds, GameScore, GameSnapshot, MarketOdds, Outcome
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +133,56 @@ def _parse_game(raw: dict) -> GameSnapshot | None:
         away_team=away_team,
         commence_time=parsed_time,
         bookmakers=bookmakers,
+    )
+
+
+async def fetch_nfl_scores(client: httpx.AsyncClient, days_from: int = 3) -> list[GameScore]:
+    """Fetch scores for recent and upcoming NFL games.
+
+    daysFrom reaches at most 3 days back (API maximum); games older than that
+    are gone from the feed and can never be graded from this endpoint.
+    """
+    params = {"apiKey": _api_key(), "daysFrom": days_from, "dateFormat": "iso"}
+    resp = await client.get(
+        f"{_BASE}/sports/americanfootball_nfl/scores/",
+        params=params,
+        timeout=httpx.Timeout(30.0),
+    )
+    resp.raise_for_status()
+    scores = []
+    for raw in resp.json():
+        parsed = _parse_score(raw)
+        if parsed is not None:
+            scores.append(parsed)
+    return scores
+
+
+def _parse_score(raw: dict) -> GameScore | None:
+    game_id = raw.get("id")
+    home_team = raw.get("home_team")
+    away_team = raw.get("away_team")
+    if not (game_id and home_team and away_team):
+        logger.warning("odds_api: skipping score with missing fields: id=%r", raw.get("id"))
+        return None
+
+    home_score = away_score = None
+    for entry in raw.get("scores") or []:
+        try:
+            value = int(entry.get("score"))
+        except (TypeError, ValueError):
+            continue
+        if entry.get("name") == home_team:
+            home_score = value
+        elif entry.get("name") == away_team:
+            away_score = value
+
+    return GameScore(
+        game_id=game_id,
+        completed=bool(raw.get("completed")),
+        home_team=home_team,
+        away_team=away_team,
+        home_score=home_score,
+        away_score=away_score,
     )
 
 

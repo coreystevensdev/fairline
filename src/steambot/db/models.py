@@ -46,7 +46,7 @@ class Pick(Base):
     rationale: Mapped[str] = mapped_column(Text)
     approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
-    # Outcome fields -- populated by the settlement job (python -m steambot settle)
+    # Outcome fields -- filled by `steambot settle` (closing line) and `steambot grade` (result)
     closing_price: Mapped[int | None] = mapped_column(Integer)
     closing_probability: Mapped[float | None] = mapped_column(Float)
     # CLV = closing_probability - implied prob of the taken price (positive = beat the close)

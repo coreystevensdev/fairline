@@ -1,8 +1,9 @@
-"""CLV settlement: capture closing lines for approved picks.
+"""Pick measurement: closing-line settlement and result grading.
 
 The free Odds API tier has no historical endpoint, so the closing line is the
 last sharp-book snapshot taken near kickoff. Run `python -m steambot settle`
 shortly before games start; picks whose window is missed keep clv NULL.
+`python -m steambot grade` fills result and profit_units from final scores.
 
 CLV = no-vig closing probability - implied probability of the taken price.
 Positive means the bet beat the close, regardless of what the model thought.
@@ -18,7 +19,7 @@ from sqlalchemy import select
 
 from steambot.agents.odds import best_sharp_book
 from steambot.db.models import Pick
-from steambot.state import GameSnapshot, american_to_prob, remove_vig
+from steambot.state import GameScore, GameSnapshot, american_to_prob, remove_vig
 
 logger = logging.getLogger(__name__)
 
@@ -116,3 +117,97 @@ async def settle_closing_lines(
         await session.commit()
 
     return {"settled": settled, "missed": missed, "pending": pending}
+
+
+def _profit_units(price: int, result: str) -> float:
+    if result == "win":
+        return price / 100 if price > 0 else 100 / abs(price)
+    return -1.0 if result == "loss" else 0.0
+
+
+def grade_pick(
+    market: str, selection: str, price: int, score: GameScore
+) -> tuple[str, float] | None:
+    """Grade one pick against a final score: (result, profit_units) or None.
+
+    Ties grade as push for h2h since the stored markets are two-way; a draw
+    refunds the stake at US books rather than losing.
+    """
+    if not score.completed or score.home_score is None or score.away_score is None:
+        return None
+
+    if market == "totals":
+        side, _, point_str = selection.partition(" ")
+        try:
+            point = float(point_str)
+        except ValueError:
+            return None
+        if side not in ("Over", "Under"):
+            return None
+        total = score.home_score + score.away_score
+        diff = total - point if side == "Over" else point - total
+    elif market in ("h2h", "spreads"):
+        if selection == score.home_team or selection.startswith(score.home_team + " "):
+            team, team_score, opp_score = score.home_team, score.home_score, score.away_score
+        elif selection == score.away_team or selection.startswith(score.away_team + " "):
+            team, team_score, opp_score = score.away_team, score.away_score, score.home_score
+        else:
+            return None
+        margin = team_score - opp_score
+        if market == "h2h":
+            diff = float(margin)
+        else:
+            try:
+                point = float(selection[len(team):].strip())
+            except ValueError:
+                return None
+            diff = margin + point
+    else:
+        return None
+
+    result = "win" if diff > 0 else "loss" if diff < 0 else "push"
+    return result, _profit_units(price, result)
+
+
+async def grade_results(scores: list[GameScore], session_factory) -> dict:
+    """Fill result and profit_units on ungraded picks from final scores.
+
+    Incomplete games count as pending; games absent from the feed (the scores
+    endpoint reaches back at most 3 days) or unmatched selections count as
+    missed and stay NULL.
+    """
+    scores_by_id = {s.game_id: s for s in scores}
+
+    graded = pending = missed = 0
+    async with session_factory() as session:
+        rows = (
+            (await session.execute(select(Pick).where(Pick.result.is_(None))))
+            .scalars()
+            .all()
+        )
+        for pick in rows:
+            score = scores_by_id.get(pick.game_id)
+            if score is None:
+                missed += 1
+                logger.warning(
+                    "grade: game_id=%s for pick_id=%s not in scores feed", pick.game_id, pick.id
+                )
+                continue
+            if not score.completed:
+                pending += 1
+                continue
+            outcome = grade_pick(pick.market, pick.selection, pick.price, score)
+            if outcome is None:
+                missed += 1
+                logger.warning(
+                    "grade: could not grade pick_id=%s selection=%r", pick.id, pick.selection
+                )
+                continue
+            pick.result, pick.profit_units = outcome
+            graded += 1
+            logger.info(
+                "grade: pick_id=%s %s %+.4f units", pick.id, pick.result, pick.profit_units
+            )
+        await session.commit()
+
+    return {"graded": graded, "pending": pending, "missed": missed}

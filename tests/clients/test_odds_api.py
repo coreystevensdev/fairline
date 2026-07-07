@@ -10,7 +10,7 @@ import pytest
 import httpx
 import respx
 
-from steambot.clients.odds_api import fetch_nfl_odds, fetch_sports, _parse_game
+from steambot.clients.odds_api import fetch_nfl_odds, fetch_nfl_scores, fetch_sports, _parse_game
 
 
 _FAKE_KEY = "test-api-key"
@@ -191,3 +191,44 @@ async def test_fetch_nfl_odds_skips_malformed_game():
         games = await fetch_nfl_odds(client)
     assert len(games) == 1
     assert games[0].game_id == "abc123"
+
+
+_NFL_SCORE_FIXTURE = {
+    "id": "abc123",
+    "sport_key": "americanfootball_nfl",
+    "commence_time": "2026-01-15T20:00:00Z",
+    "completed": True,
+    "home_team": "Kansas City Chiefs",
+    "away_team": "Las Vegas Raiders",
+    "scores": [
+        {"name": "Kansas City Chiefs", "score": "27"},
+        {"name": "Las Vegas Raiders", "score": "20"},
+    ],
+    "last_update": "2026-01-16T00:10:00Z",
+}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_nfl_scores_parses_final_scores():
+    upcoming = {
+        "id": "def456",
+        "completed": False,
+        "home_team": "Buffalo Bills",
+        "away_team": "Miami Dolphins",
+        "scores": None,
+    }
+    respx.get(f"{_ODDS_BASE}/sports/americanfootball_nfl/scores/").mock(
+        return_value=httpx.Response(200, json=[_NFL_SCORE_FIXTURE, upcoming])
+    )
+    async with httpx.AsyncClient() as client:
+        scores = await fetch_nfl_scores(client)
+
+    assert len(scores) == 2
+    final = scores[0]
+    assert final.game_id == "abc123"
+    assert final.completed is True
+    assert final.home_score == 27
+    assert final.away_score == 20
+    assert scores[1].completed is False
+    assert scores[1].home_score is None
