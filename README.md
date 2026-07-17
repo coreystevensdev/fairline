@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![187 tests](https://img.shields.io/badge/tests-187-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![189 tests](https://img.shields.io/badge/tests-189-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -20,14 +20,18 @@ The pipeline runs as a LangGraph StateGraph: fetch Pinnacle odds, strip vig to n
 
 ```mermaid
 flowchart TD
-    A[POST /api/runs] --> B[OddsAgent: fetch league odds]
-    B --> C[Compute no-vig fair probs from Pinnacle]
-    C --> D[PickAgent: Claude forced tool call]
-    D --> E{LangGraph interrupt}
-    E --> F[User reviews candidates via GET /api/runs/id]
-    F --> G[POST /api/runs/id/approve]
-    G --> H[ValidateAgent: record CLV baseline]
-    H --> I[Bet slips prepared]
+    A[POST /api/runs] --> B[odds_agent: fetch Pinnacle odds, strip vig]
+    B -->|error| Z[END]
+    B -->|success| C[weather_agent]
+    C --> D[injury_agent]
+    D --> E[trends_agent]
+    E --> F[sim_agent]
+    F --> G[pick_agent: Claude forced submit_picks tool call]
+    G --> H{hitl_review: LangGraph interrupt}
+    H --> I[User reviews candidates via GET /api/runs/id]
+    I --> J[POST /api/runs/id/approve]
+    J --> K[validate_agent: record CLV baseline]
+    K --> L[Bet slips prepared]
 ```
 
 **Data source routing:**
