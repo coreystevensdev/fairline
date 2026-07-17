@@ -17,12 +17,9 @@ Docs: https://docs.balldontlie.io/
 
 from __future__ import annotations
 
-import logging
 import os
 
 import httpx
-
-logger = logging.getLogger(__name__)
 
 _BASE = "https://api.balldontlie.io"
 
@@ -85,7 +82,9 @@ async def fetch_team_season_stats(
             client, "/mlb/v1/teams/season_stats", {"team_id": team_id, "season": season}
         )
     elif sport == "nhl":
-        return await _get(client, f"/nhl/v1/teams/{team_id}/season_stats", {"season": season})
+        payload = await _get(client, f"/nhl/v1/teams/{team_id}/season_stats", {"season": season})
+        rows = payload.get("data") or []
+        return {row["name"]: row["value"] for row in rows} if rows else None
     elif sport == "nba":
         payload = await _get(
             client,

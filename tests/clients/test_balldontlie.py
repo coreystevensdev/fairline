@@ -98,7 +98,27 @@ async def test_fetch_team_season_stats_nhl_uses_path_param():
     )
     async with httpx.AsyncClient() as client:
         stats = await fetch_team_season_stats(client, "nhl", team_id=7, season=2025)
-    assert stats == {"data": [{"name": "wins", "value": 41}]}
+    assert stats == {"wins": 41}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_team_season_stats_nba():
+    respx.get(f"{_BASE}/nba/v1/team_season_averages/general").mock(
+        return_value=httpx.Response(
+            200, json={"data": [{"team": {"id": 5}, "off_rating": 118.2}]}
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        stats = await fetch_team_season_stats(client, "nba", team_id=5, season=2025)
+    assert stats == {"team": {"id": 5}, "off_rating": 118.2}
+
+
+@pytest.mark.asyncio
+async def test_fetch_team_season_stats_unsupported_sport_raises():
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(ValueError):
+            await fetch_team_season_stats(client, "mls", team_id=1, season=2025)
 
 
 @pytest.mark.asyncio
