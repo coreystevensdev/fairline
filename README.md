@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![189 tests](https://img.shields.io/badge/tests-189-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![220 tests](https://img.shields.io/badge/tests-220-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -22,9 +22,14 @@ The pipeline runs as a LangGraph StateGraph: fetch Pinnacle odds, strip vig to n
 flowchart TD
     A[POST /api/runs] --> B[odds_agent: fetch Pinnacle odds, strip vig]
     B -->|error| Z[END]
-    B -->|success| C[weather_agent]
-    C --> D[injury_agent]
-    D --> E[trends_agent]
+    B -->|success, fan out via Send| C[weather_agent]
+    B -->|success, fan out via Send| D[injury_agent]
+    B -->|success, fan out via Send| S[stats_agent]
+    B -->|success, fan out via Send| G1[signal_agent]
+    C --> E[trends_agent]
+    D --> E
+    S --> E
+    G1 --> E
     E --> F[sim_agent]
     F --> G[pick_agent: Claude forced submit_picks tool call]
     G --> H{hitl_review: LangGraph interrupt}
@@ -34,12 +39,15 @@ flowchart TD
     K --> L[Bet slips prepared]
 ```
 
+`weather_agent`, `injury_agent`, `stats_agent`, and `signal_agent` run in parallel via LangGraph's `Send()` API and share no data dependency; all four converge on `trends_agent` before the sim runs.
+
 **Data source routing:**
 
 | Source | Purpose | Access |
 |---|---|---|
 | Pinnacle (via The Odds API) | Sharp-line reference; no-vig fair probability | `ODDS_API_KEY` |
 | FanDuel / DraftKings / BetMGM | Retail price comparison; line shopping | Same key |
+| BALLDONTLIE | Team season stats (all 4 sports); player season stats (NFL/MLB only) | `BALLDONTLIE_API_KEY` |
 | Anthropic Claude | Pick generation with forced `submit_picks` tool call | `ANTHROPIC_API_KEY` |
 | Stripe | Subscription billing (Pro tier) | `STRIPE_SECRET_KEY` |
 
@@ -366,3 +374,6 @@ python -m eval --out eval/report.json
 6. **API keys are minimal.** One key per user, no scopes, no expiry, rotation only via `create-user` re-run. Lookups compare SHA-256 hashes through a unique index; there is no per-key rate limiting, so a leaked key is fully capable until rotated.
 7. **MemorySaver in tests.** Run status and ownership now live in the `runs` table and survive restarts, but graph state (candidates awaiting approval) still uses `MemorySaver` in local dev. Production requires `PostgresSaver` for the HITL pause itself to survive a restart; the switchover is a one-line change in `graph.py`.
 8. **The sim weight is static.** `FAIRLINE_SIM_WEIGHT` applies uniformly to every pick and only changes when an operator reads `sim-report` and decides to change it. A calibrated system would fit the weight from the disagreement-bucket CLV; here that judgment is deliberately left to the human.
+9. **BALLDONTLIE's free tier caps at 5 requests/minute.** Stats fetch failures, including rate-limit responses, degrade to skipping that team's stats for the run rather than blocking picks.
+10. **Player-level stats are fetched for NFL and MLB only.** NBA's and NHL's player endpoints require a player-ID roster lookup fairline doesn't have yet.
+11. **Player-level stats land in state but nothing consumes them for prop-market picks yet.** fairline's automated pipeline only bets moneyline/spread/total today.
