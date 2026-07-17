@@ -156,6 +156,15 @@ class FairlineState(TypedDict):
     # InjuryAgent output: team -> {"adjustment", "notes"}
     team_injuries: dict
 
+    # StatsAgent output: team -> BALLDONTLIE season stat dict
+    team_stats: dict
+
+    # StatsAgent output: team -> list of player season stat dicts (NFL/MLB only)
+    player_stats: dict
+
+    # SignalAgent output: game_id -> list of formatted steam-move event strings
+    steam_signal: dict
+
     # PickAgent output
     candidates: list[PickCandidate]
 

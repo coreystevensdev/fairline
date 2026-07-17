@@ -125,3 +125,12 @@ def test_blend_weight_is_clamped():
 
     assert blend_probability(0.50, 0.60, 1.7) == pytest.approx(0.60)
     assert blend_probability(0.50, 0.60, -0.3) == pytest.approx(0.50)
+
+
+def test_fairline_state_has_stats_and_signal_fields():
+    from fairline.state import FairlineState
+
+    annotations = FairlineState.__annotations__
+    assert "team_stats" in annotations
+    assert "player_stats" in annotations
+    assert "steam_signal" in annotations
