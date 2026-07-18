@@ -293,3 +293,97 @@ async def test_angle_report_ignores_ungraded_and_angleless_picks(session_factory
     from fairline.matchup import angle_report
 
     assert await angle_report(session_factory) == {}
+
+
+class TestParseGameContext:
+    def test_home_team_gets_is_home_true(self):
+        from fairline.matchup import build_game_context
+
+        csv_text = (
+            "season,week,home_team,away_team,weekday,gametime,surface,temp,wind\n"
+            "2025,10,KC,BUF,Sunday,13:00,grass,55,8\n"
+        )
+        context = build_game_context(csv_text)
+        assert context[("KC", 2025, 10)]["is_home"] is True
+        assert context[("BUF", 2025, 10)]["is_home"] is False
+
+    def test_monday_and_thursday_are_primetime(self):
+        from fairline.matchup import build_game_context
+
+        csv_text = (
+            "season,week,home_team,away_team,weekday,gametime,surface,temp,wind\n"
+            "2025,10,KC,BUF,Monday,20:15,grass,55,8\n"
+        )
+        context = build_game_context(csv_text)
+        assert context[("KC", 2025, 10)]["is_primetime"] is True
+
+    def test_late_sunday_is_primetime_early_sunday_is_not(self):
+        from fairline.matchup import build_game_context
+
+        csv_text = (
+            "season,week,home_team,away_team,weekday,gametime,surface,temp,wind\n"
+            "2025,10,KC,BUF,Sunday,20:20,grass,55,8\n"
+            "2025,11,KC,BUF,Sunday,13:00,grass,55,8\n"
+        )
+        context = build_game_context(csv_text)
+        assert context[("KC", 2025, 10)]["is_primetime"] is True
+        assert context[("KC", 2025, 11)]["is_primetime"] is False
+
+    def test_bad_weather_flags_high_wind_or_cold(self):
+        from fairline.matchup import build_game_context
+
+        csv_text = (
+            "season,week,home_team,away_team,weekday,gametime,surface,temp,wind\n"
+            "2025,10,KC,BUF,Sunday,13:00,grass,55,20\n"
+            "2025,11,KC,BUF,Sunday,13:00,grass,20,5\n"
+            "2025,12,KC,BUF,Sunday,13:00,grass,60,5\n"
+        )
+        context = build_game_context(csv_text)
+        assert context[("KC", 2025, 10)]["bad_weather"] is True  # high wind
+        assert context[("KC", 2025, 11)]["bad_weather"] is True  # cold
+        assert context[("KC", 2025, 12)]["bad_weather"] is False
+
+    def test_missing_temp_and_wind_is_no_bad_weather_data(self):
+        from fairline.matchup import build_game_context
+
+        csv_text = (
+            "season,week,home_team,away_team,weekday,gametime,surface,temp,wind\n"
+            "2025,10,KC,BUF,Sunday,13:00,grass,,\n"
+        )
+        context = build_game_context(csv_text)
+        assert context[("KC", 2025, 10)]["bad_weather"] is None
+
+    def test_surface_value_is_stripped_of_stray_whitespace(self):
+        from fairline.matchup import build_game_context
+
+        csv_text = (
+            "season,week,home_team,away_team,weekday,gametime,surface,temp,wind\n"
+            "2025,10,KC,BUF,Sunday,13:00,grass ,55,8\n"
+        )
+        context = build_game_context(csv_text)
+        assert context[("KC", 2025, 10)]["surface"] == "grass"
+
+
+class TestParsePlayerStatsWithContext:
+    def test_context_lookup_populates_new_fields(self):
+        stats_csv = (
+            "season,week,player_display_name,team,opponent_team,position,passing_yards\n"
+            "2025,10,Patrick Mahomes,KC,BUF,QB,310\n"
+        )
+        context_lookup = {
+            ("KC", 2025, 10): {"is_home": True, "surface": "grass", "is_primetime": False, "bad_weather": False}
+        }
+        rows = parse_player_stats(stats_csv, context_lookup=context_lookup)
+        assert rows[0].is_home is True
+        assert rows[0].surface == "grass"
+        assert rows[0].is_primetime is False
+        assert rows[0].bad_weather is False
+
+    def test_no_context_lookup_leaves_fields_null(self):
+        stats_csv = (
+            "season,week,player_display_name,team,opponent_team,position,passing_yards\n"
+            "2025,10,Patrick Mahomes,KC,BUF,QB,310\n"
+        )
+        rows = parse_player_stats(stats_csv)
+        assert rows[0].is_home is None
+        assert rows[0].surface is None

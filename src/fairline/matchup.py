@@ -36,6 +36,65 @@ SHRINKAGE_K = 10
 MAX_MARKET_DEVIATION = 0.06  # the matchup number may not stray further from fair
 _TRACKED_POSITIONS = {"QB", "RB", "WR", "TE"}
 
+# NFL "bad weather" heuristic thresholds, matching common betting-market
+# framing (high wind hurts passing games, cold hurts everything at the margins).
+# A documented heuristic, not a statistical cutoff -- see mlb_park_factors.py
+# for the same style of disclosed threshold on the MLB side.
+_BAD_WEATHER_WIND_MPH = 15.0
+_BAD_WEATHER_TEMP_F = 32.0
+_PRIMETIME_WEEKDAYS = {"Monday", "Thursday"}
+_PRIMETIME_SUNDAY_HOUR = 19  # 24-hour clock; a Sunday kickoff at or after this hour counts as primetime
+
+
+def build_game_context(games_csv_text: str) -> dict[tuple[str, int, int], dict]:
+    """(team_code, season, week) -> {is_home, surface, is_primetime, bad_weather}
+    for both the home and away team of every game in the nflverse games CSV."""
+    context: dict[tuple[str, int, int], dict] = {}
+    for row in csv.DictReader(io.StringIO(games_csv_text)):
+        try:
+            season, week = int(row["season"]), int(row["week"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        home_code, away_code = row.get("home_team", ""), row.get("away_team", "")
+        # nflverse has a few rows with a trailing space on "grass "; strip so
+        # it doesn't read as a distinct surface from "grass"
+        surface = (row.get("surface") or "").strip() or None
+        weekday = row.get("weekday", "")
+
+        def _float(key: str) -> float | None:
+            try:
+                return float(row[key])
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        temp, wind = _float("temp"), _float("wind")
+        if temp is None and wind is None:
+            bad_weather = None
+        else:
+            bad_weather = (wind is not None and wind >= _BAD_WEATHER_WIND_MPH) or (
+                temp is not None and temp <= _BAD_WEATHER_TEMP_F
+            )
+
+        is_primetime = weekday in _PRIMETIME_WEEKDAYS
+        if not is_primetime and weekday == "Sunday":
+            gametime = row.get("gametime", "")
+            try:
+                hour = int(gametime.split(":")[0])
+                is_primetime = hour >= _PRIMETIME_SUNDAY_HOUR
+            except (ValueError, IndexError):
+                pass
+
+        for code, is_home in ((home_code, True), (away_code, False)):
+            if not code:
+                continue
+            context[(code, season, week)] = {
+                "is_home": is_home,
+                "surface": surface,
+                "is_primetime": is_primetime,
+                "bad_weather": bad_weather,
+            }
+    return context
+
 
 def shrunk_probability(hits: int, attempts: int, base_rate: float, k: int = SHRINKAGE_K) -> float:
     """Beta-binomial shrinkage: small samples read mostly as the base rate."""
@@ -107,13 +166,16 @@ def describe_splits(splits: dict[str, tuple[int, int]], side: str, line: float) 
     return f"{side} angles: " + "; ".join(parts)
 
 
-def parse_player_stats(csv_text: str, date_lookup: dict | None = None) -> list[PlayerGame]:
+def parse_player_stats(
+    csv_text: str, date_lookup: dict | None = None, context_lookup: dict | None = None
+) -> list[PlayerGame]:
     """Parse nflverse weekly player stats into rows worth keeping.
 
     Skill positions only, and only rows with at least one tracked stat; the
     table exists to answer prop questions, not to mirror nflverse.
     """
     date_lookup = date_lookup or {}
+    context_lookup = context_lookup or {}
     rows: list[PlayerGame] = []
     for row in csv.DictReader(io.StringIO(csv_text)):
         if row.get("position") not in _TRACKED_POSITIONS:
@@ -138,6 +200,7 @@ def parse_player_stats(csv_text: str, date_lookup: dict | None = None) -> list[P
             season, week = int(row["season"]), int(row["week"])
         except (KeyError, TypeError, ValueError):
             continue
+        context = context_lookup.get((team_code, season, week), {})
         rows.append(
             PlayerGame(
                 sport="americanfootball_nfl",
@@ -147,6 +210,10 @@ def parse_player_stats(csv_text: str, date_lookup: dict | None = None) -> list[P
                 player=row.get("player_display_name", ""),
                 team=team,
                 opponent=opponent,
+                is_home=context.get("is_home"),
+                surface=context.get("surface"),
+                is_primetime=context.get("is_primetime"),
+                bad_weather=context.get("bad_weather"),
                 **stats,
             )
         )

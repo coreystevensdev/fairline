@@ -196,12 +196,16 @@ async def _backfill_players(seasons: list[int]) -> None:
             date_lookup[(row.get("home_team"), season, week)] = gameday
             date_lookup[(row.get("away_team"), season, week)] = gameday
 
+        from fairline.matchup import build_game_context
+
+        context_lookup = build_game_context(games_resp.text)
+
         factory = get_session_factory()
         total = 0
         for season in sorted(set(seasons)):
             resp = await client.get(PLAYER_STATS_URL.format(season=season), timeout=120.0)
             resp.raise_for_status()
-            rows = parse_player_stats(resp.text, date_lookup)
+            rows = parse_player_stats(resp.text, date_lookup, context_lookup)
             async with factory() as session:
                 await session.execute(
                     delete(PlayerGame).where(
