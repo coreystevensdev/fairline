@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![270 tests](https://img.shields.io/badge/tests-270-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![287 tests](https://img.shields.io/badge/tests-287-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -49,6 +49,7 @@ flowchart TD
 | FanDuel / DraftKings / BetMGM | Retail price comparison; line shopping | Same key |
 | BALLDONTLIE | Team season stats (all 4 sports); player season stats (NFL/MLB only) | `BALLDONTLIE_API_KEY` |
 | pybaseball | Per-game MLB batter stats for the matchup splits engine; scrapes Baseball Reference, Baseball Savant, and FanGraphs directly | None (unofficial, unauthenticated) |
+| NHL official API | Per-game NHL skater stats (schedule + boxscore) for the matchup splits engine | None (official, unauthenticated) |
 | Anthropic Claude | Pick generation with forced `submit_picks` tool call | `ANTHROPIC_API_KEY` |
 | Stripe | Subscription billing (Pro tier) | `STRIPE_SECRET_KEY` |
 
@@ -183,6 +184,17 @@ python -m fairline matchup --sport baseball_mlb --markets batter_hits,batter_hom
 ```
 
 For each batter prop, `compute_mlb_prop_splits` computes last-5, last-10, season, day, night, home, away, and park-factor hit rates against the line, the same shrinkage-toward-fair math as the NFL matchup agent, combined into a probability that flags a candidate when it beats the retail price. The vs-specific-pitcher split is computed too, but only surfaces when a batter has faced that pitcher at least 10 times (`MIN_VS_PITCHER_SAMPLE`); below that floor the split is left out of the result entirely rather than shown on a handful of at-bats. Candidates land in the same review queue as NFL matchup and steam picks, tagged `source=mlb_matchup`.
+
+### NHL skater props
+
+NHL gets the same shrinkage-and-market-bound treatment as MLB and NFL, on splits that fit hockey's own schedule and roster shape rather than reusing either sport's set as-is. MoneyPuck was the first data source considered and got ruled out during research: it publishes only per-player season CSVs, not a bulk per-game skater file, and its terms post an explicit anti-scraping stance. The NHL's own API is free, needs no key, and returns per-game boxscores directly, so that's the source. Seed per-game skater stats, then scan:
+
+```bash
+python -m fairline backfill-nhl-players --team EDM --season 20252026
+python -m fairline matchup --sport icehockey_nhl --markets player_goals,player_assists,player_points,player_shots_on_goal
+```
+
+`compute_nhl_prop_splits` computes last-5, last-10, season, home, away, and back-to-back-rest hit rates against the line, the same shrinkage math as the other two sports' matchup agents. Rest days aren't a field the NHL API returns; they're derived from the gap between a team's consecutive scheduled game dates during ingestion. The vs-specific-opposing-goalie split is computed too, but only surfaces at 10 or more career meetings against that goalie (`MIN_VS_GOALIE_SAMPLE`); below that floor it's left out of the result rather than shown on a couple of games. Candidates land in the same review queue as NFL, MLB, and steam picks, tagged `source=nhl_matchup`.
 
 ### The simulation model
 
@@ -399,3 +411,7 @@ python -m eval --out eval/report.json
 17. **The weather split is historical only** (how has this player performed in past bad-weather games), not a forecast for the specific upcoming game; wiring a live forecast into the CLI matchup path is future work.
 18. **Primetime detection uses a fixed Sunday-kickoff-hour heuristic** (19:00 or later) plus Monday/Thursday. A schedule change outside this heuristic, a Saturday game, won't get flagged as primetime.
 19. **"Bad weather" is a fixed wind/temperature heuristic** (wind >= 15 mph or temp <= 32F), not a graded scale. Games with no recorded temp or wind, typically domes, are excluded from the weather split rather than assumed good weather.
+20. **The vs-specific-goalie split is computed and tested but not wired into live picking.** It needs the opposing starting goalie for an upcoming game, which isn't confirmed until pre-game, the same limitation MLB's vs-pitcher split has.
+21. **No day/night split exists for NHL.** Every game is played indoors, so the dimension carries no information.
+22. **Rest days are derived from consecutive schedule dates, not a field the NHL's API provides directly.** A team's first backfilled game in a date range has no rest-days value.
+23. **The NHL's official API has no published OpenAPI spec or documented stability guarantee.** Every field this integration reads was verified against a real live response during development, not assumed from third-party documentation.
