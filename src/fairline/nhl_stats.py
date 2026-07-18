@@ -20,6 +20,12 @@ from fairline.db.models import NhlPlayerGame
 
 logger = logging.getLogger(__name__)
 
+# gameState values confirmed live: FINAL (preseason) and OFF (regular season/
+# playoffs) are the only ones meaning a game actually finished. FUT games
+# return HTTP 200 with no playerByGameStats, so skipping them here is about
+# not wasting a round trip, not avoiding a crash.
+_FINISHED_STATES = {"FINAL", "OFF"}
+
 _TEAM_NAMES = {
     "ANA": "Anaheim Ducks", "BOS": "Boston Bruins", "BUF": "Buffalo Sabres",
     "CGY": "Calgary Flames", "CAR": "Carolina Hurricanes", "CHI": "Chicago Blackhawks",
@@ -56,16 +62,27 @@ async def fetch_nhl_skater_games(client: httpx.AsyncClient, team: str, season: s
     """Every skater's game log for one team's season, in NhlPlayerGame rows."""
     schedule = await fetch_team_schedule(client, team, season)
     schedule.sort(key=lambda g: g["game_date"])
-    rest_days = _derive_rest_days(schedule)
+    played = [g for g in schedule if g.get("game_state") in _FINISHED_STATES]
+    skipped = len(schedule) - len(played)
+    if skipped:
+        logger.info("nhl_stats: skipping %d unplayed/in-progress game(s) for %s season %s", skipped, team, season)
+    rest_days = _derive_rest_days(played)
 
     rows: list[NhlPlayerGame] = []
-    for game, rest in zip(schedule, rest_days):
+    for game, rest in zip(played, rest_days):
         is_home = game["home_team"] == team
         opponent_code = game["away_team"] if is_home else game["home_team"]
         own_side = "homeTeam" if is_home else "awayTeam"
         opponent_side = "awayTeam" if is_home else "homeTeam"
 
-        boxscore = await fetch_boxscore(client, game["game_id"])
+        try:
+            boxscore = await fetch_boxscore(client, game["game_id"])
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "nhl_stats: boxscore fetch failed for game %s (%s), skipping",
+                game["game_id"], exc,
+            )
+            continue
         opposing_goalie = _opposing_starting_goalie(boxscore, opponent_side)
         own_stats = boxscore.get("playerByGameStats", {}).get(own_side, {})
         skaters = (own_stats.get("forwards") or []) + (own_stats.get("defense") or [])

@@ -12,8 +12,8 @@ _BASE = "https://api-web.nhle.com"
 
 _SCHEDULE_FIXTURE = {
     "games": [
-        {"id": 2025020123, "gameDate": "2025-12-01", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}},
-        {"id": 2025020145, "gameDate": "2025-12-03", "homeTeam": {"abbrev": "CGY"}, "awayTeam": {"abbrev": "EDM"}},
+        {"id": 2025020123, "gameDate": "2025-12-01", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}, "gameState": "OFF"},
+        {"id": 2025020145, "gameDate": "2025-12-03", "homeTeam": {"abbrev": "CGY"}, "awayTeam": {"abbrev": "EDM"}, "gameState": "FUT"},
     ]
 }
 
@@ -31,6 +31,8 @@ async def test_fetch_team_schedule_happy_path():
     assert games[0]["home_team"] == "EDM"
     assert games[0]["away_team"] == "CGY"
     assert games[0]["game_date"] == "2025-12-01"
+    assert games[0]["game_state"] == "OFF"
+    assert games[1]["game_state"] == "FUT"
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,7 @@ async def fetch_team_schedule(client: httpx.AsyncClient, team: str, season: str)
             "game_date": g["gameDate"],
             "home_team": g["homeTeam"]["abbrev"],
             "away_team": g["awayTeam"]["abbrev"],
+            "game_state": g.get("gameState"),
         })
     return games
 

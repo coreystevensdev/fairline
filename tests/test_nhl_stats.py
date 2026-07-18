@@ -36,7 +36,7 @@ async def test_fetch_nhl_skater_games_happy_path(monkeypatch):
     monkeypatch.setattr("fairline.nhl_stats._TEAM_NAMES", _TEAM_NAMES)
     respx.get(f"{_BASE}/v1/club-schedule-season/EDM/20252026").mock(
         return_value=httpx.Response(200, json={
-            "games": [{"id": 1, "gameDate": "2025-12-01", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}}]
+            "games": [{"id": 1, "gameDate": "2025-12-01", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}, "gameState": "OFF"}]
         })
     )
     respx.get(f"{_BASE}/v1/gamecenter/1/boxscore").mock(
@@ -76,7 +76,7 @@ async def test_fetch_nhl_skater_games_away_team_path(monkeypatch):
     monkeypatch.setattr("fairline.nhl_stats._TEAM_NAMES", _TEAM_NAMES)
     respx.get(f"{_BASE}/v1/club-schedule-season/CGY/20252026").mock(
         return_value=httpx.Response(200, json={
-            "games": [{"id": 1, "gameDate": "2025-12-01", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}}]
+            "games": [{"id": 1, "gameDate": "2025-12-01", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}, "gameState": "OFF"}]
         })
     )
     respx.get(f"{_BASE}/v1/gamecenter/1/boxscore").mock(
@@ -107,3 +107,85 @@ async def test_fetch_nhl_skater_games_away_team_path(monkeypatch):
     assert row.opposing_goalie == "Dustin Wolf"
     assert row.goals == 0
     assert row.points == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_nhl_skater_games_skips_unplayed_games(monkeypatch):
+    """A schedule mixing finished and future games should only hit the
+    boxscore endpoint for the finished ones."""
+    monkeypatch.setattr("fairline.nhl_stats._TEAM_NAMES", _TEAM_NAMES)
+    respx.get(f"{_BASE}/v1/club-schedule-season/EDM/20252026").mock(
+        return_value=httpx.Response(200, json={
+            "games": [
+                {"id": 1, "gameDate": "2025-12-01", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}, "gameState": "OFF"},
+                {"id": 2, "gameDate": "2025-12-03", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}, "gameState": "FUT"},
+                {"id": 3, "gameDate": "2025-12-05", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}, "gameState": "LIVE"},
+            ]
+        })
+    )
+    boxscore_route = respx.get(f"{_BASE}/v1/gamecenter/1/boxscore").mock(
+        return_value=httpx.Response(200, json={
+            "playerByGameStats": {
+                "homeTeam": {
+                    "forwards": [{"playerId": 1, "name": {"default": "Connor McDavid"}, "position": "C", "goals": 1, "assists": 2, "points": 3, "sog": 5}],
+                    "defense": [],
+                    "goalies": [{"playerId": 2, "name": {"default": "Dustin Wolf"}, "starter": False}],
+                },
+                "awayTeam": {
+                    "forwards": [],
+                    "defense": [],
+                    "goalies": [{"playerId": 3, "name": {"default": "Jacob Markstrom"}, "starter": True}],
+                },
+            }
+        })
+    )
+    unplayed_route = respx.get(url__regex=rf"{_BASE}/v1/gamecenter/[23]/boxscore")
+
+    async with httpx.AsyncClient() as client:
+        rows = await fetch_nhl_skater_games(client, "EDM", "20252026")
+
+    assert len(rows) == 1
+    assert rows[0].player == "Connor McDavid"
+    assert boxscore_route.called
+    assert not unplayed_route.called
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_nhl_skater_games_skips_game_on_boxscore_failure(monkeypatch):
+    """One game's boxscore fetch failing with an HTTP error should not abort
+    the rest of the batch."""
+    monkeypatch.setattr("fairline.nhl_stats._TEAM_NAMES", _TEAM_NAMES)
+    respx.get(f"{_BASE}/v1/club-schedule-season/EDM/20252026").mock(
+        return_value=httpx.Response(200, json={
+            "games": [
+                {"id": 1, "gameDate": "2025-12-01", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}, "gameState": "OFF"},
+                {"id": 2, "gameDate": "2025-12-03", "homeTeam": {"abbrev": "EDM"}, "awayTeam": {"abbrev": "CGY"}, "gameState": "OFF"},
+            ]
+        })
+    )
+    respx.get(f"{_BASE}/v1/gamecenter/1/boxscore").mock(return_value=httpx.Response(500))
+    respx.get(f"{_BASE}/v1/gamecenter/2/boxscore").mock(
+        return_value=httpx.Response(200, json={
+            "playerByGameStats": {
+                "homeTeam": {
+                    "forwards": [{"playerId": 1, "name": {"default": "Connor McDavid"}, "position": "C", "goals": 2, "assists": 0, "points": 2, "sog": 4}],
+                    "defense": [],
+                    "goalies": [{"playerId": 2, "name": {"default": "Dustin Wolf"}, "starter": False}],
+                },
+                "awayTeam": {
+                    "forwards": [],
+                    "defense": [],
+                    "goalies": [{"playerId": 3, "name": {"default": "Jacob Markstrom"}, "starter": True}],
+                },
+            }
+        })
+    )
+
+    async with httpx.AsyncClient() as client:
+        rows = await fetch_nhl_skater_games(client, "EDM", "20252026")
+
+    assert len(rows) == 1
+    assert rows[0].player == "Connor McDavid"
+    assert rows[0].goals == 2
