@@ -55,7 +55,7 @@ def test_splits_are_preregistered_and_counted():
 
     splits = compute_prop_splits(games, "passing_yards", line=275.5)
 
-    assert set(splits) == {"last_5", "last_10", "season", "vs_opponent"}
+    assert set(splits) == {"last_5", "last_10", "season", "vs_opponent", "home", "away", "primetime", "weather"}
     assert splits["last_10"] == (5, 10)
     assert splits["season"] == (5, 10)
     # weeks 6..10: odd weeks 7 and 9 clear the line
@@ -417,3 +417,78 @@ class TestParsePlayerStatsWithContext:
         rows = parse_player_stats(stats_csv)
         assert rows[0].is_home is None
         assert rows[0].surface is None
+
+
+class TestNewSplitDimensions:
+    def _game(self, is_home=True, is_primetime=False, bad_weather=False, surface="grass",
+              passing_yards=275.0, season=2025, week=1):
+        return PlayerGame(
+            sport="americanfootball_nfl", season=season, week=week,
+            player="Patrick Mahomes", team="Kansas City Chiefs", opponent="Buffalo Bills",
+            is_home=is_home, surface=surface, is_primetime=is_primetime, bad_weather=bad_weather,
+            passing_yards=passing_yards,
+        )
+
+    def test_home_and_away_splits_present(self):
+        games = [self._game(is_home=True, week=1), self._game(is_home=False, week=2, passing_yards=200.0)]
+        splits = compute_prop_splits(games, "passing_yards", 250.0)
+        assert splits["home"] == (1, 1)
+        assert splits["away"] == (0, 1)
+
+    def test_primetime_split(self):
+        games = [self._game(is_primetime=True, week=1), self._game(is_primetime=False, week=2, passing_yards=200.0)]
+        splits = compute_prop_splits(games, "passing_yards", 250.0)
+        assert splits["primetime"] == (1, 1)
+
+    def test_weather_split(self):
+        games = [self._game(bad_weather=True, week=1, passing_yards=200.0), self._game(bad_weather=False, week=2)]
+        splits = compute_prop_splits(games, "passing_yards", 250.0)
+        assert splits["weather"] == (0, 1)
+
+    def test_games_with_null_weather_are_excluded_from_the_weather_split(self):
+        game = self._game(week=1)
+        game.bad_weather = None
+        splits = compute_prop_splits([game], "passing_yards", 250.0)
+        assert splits["weather"] == (0, 0)
+
+    def test_surface_split_only_present_when_upcoming_surface_given(self):
+        games = [self._game(surface="grass", week=1)]
+        no_surface = compute_prop_splits(games, "passing_yards", 250.0)
+        assert "surface" not in no_surface
+        with_surface = compute_prop_splits(games, "passing_yards", 250.0, upcoming_surface="grass")
+        assert with_surface["surface"] == (1, 1)
+
+    def test_surface_split_filters_to_matching_surface_only(self):
+        games = [
+            self._game(surface="grass", week=1, passing_yards=300.0),
+            self._game(surface="fieldturf", week=2, passing_yards=100.0),
+        ]
+        splits = compute_prop_splits(games, "passing_yards", 250.0, upcoming_surface="grass")
+        assert splits["surface"] == (1, 1)
+
+
+async def test_team_home_surface_reads_most_recent_home_game():
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base
+    from fairline.matchup import _team_home_surface
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add_all([
+            PlayerGame(sport="americanfootball_nfl", season=2024, week=1, player="X",
+                       team="Kansas City Chiefs", opponent="Buffalo Bills", is_home=True, surface="turf"),
+            PlayerGame(sport="americanfootball_nfl", season=2025, week=1, player="X",
+                       team="Kansas City Chiefs", opponent="Buffalo Bills", is_home=True, surface="grass"),
+        ])
+        await session.commit()
+
+    async with factory() as session:
+        surface = await _team_home_surface(session, "Kansas City Chiefs")
+    assert surface == "grass"
+    await engine.dispose()

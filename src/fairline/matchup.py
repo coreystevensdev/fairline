@@ -102,7 +102,8 @@ def shrunk_probability(hits: int, attempts: int, base_rate: float, k: int = SHRI
 
 
 def compute_prop_splits(
-    games: list[PlayerGame], stat: str, line: float, opponent: str | None = None
+    games: list[PlayerGame], stat: str, line: float, opponent: str | None = None,
+    upcoming_surface: str | None = None,
 ) -> dict[str, tuple[int, int]]:
     """Pre-registered splits only; searching for the best-looking slice is the
     multiple-comparisons trap this module exists to avoid."""
@@ -116,12 +117,19 @@ def compute_prop_splits(
         return hits, len(subset)
 
     latest_season = played[0].season if played else 0
-    return {
+    splits = {
         "last_5": rate(played[:5]),
         "last_10": rate(played[:10]),
         "season": rate([g for g in played if g.season == latest_season]),
         "vs_opponent": rate([g for g in played if g.opponent == opponent]),
+        "home": rate([g for g in played if g.is_home is True]),
+        "away": rate([g for g in played if g.is_home is False]),
+        "primetime": rate([g for g in played if g.is_primetime is True]),
+        "weather": rate([g for g in played if g.bad_weather is True]),
     }
+    if upcoming_surface:
+        splits["surface"] = rate([g for g in played if g.surface == upcoming_surface])
+    return splits
 
 
 def combine_splits(
@@ -148,10 +156,11 @@ def combine_splits(
 
 
 def matchup_probability(
-    games: list[PlayerGame], stat: str, line: float, side: str, market_fair: float
+    games: list[PlayerGame], stat: str, line: float, side: str, market_fair: float,
+    upcoming_surface: str | None = None,
 ) -> tuple[float, dict[str, tuple[int, int]]]:
     """Probability the side hits, with the splits that produced it."""
-    splits = compute_prop_splits(games, stat, line)
+    splits = compute_prop_splits(games, stat, line, upcoming_surface=upcoming_surface)
     over_fair = market_fair if side == "Over" else 1 - market_fair
     over_prob = combine_splits(splits, base_rate=over_fair, market_fair=over_fair)
     return (over_prob if side == "Over" else 1 - over_prob), splits
@@ -306,6 +315,20 @@ async def grade_prop_picks(session_factory) -> dict:
     return {"graded": graded, "missed": missed}
 
 
+async def _team_home_surface(session, team: str) -> str | None:
+    """The surface this team's stadium uses, read from any of their own
+    historical home games rather than a second static lookup table."""
+    row = (
+        await session.execute(
+            select(PlayerGame.surface)
+            .where(PlayerGame.team == team, PlayerGame.is_home.is_(True), PlayerGame.surface.is_not(None))
+            .order_by(PlayerGame.season.desc(), PlayerGame.week.desc())
+            .limit(1)
+        )
+    ).scalar()
+    return row
+
+
 async def create_matchup_candidates(
     session_factory, snapshot, min_edge: float = 0.03
 ) -> int:
@@ -332,6 +355,7 @@ async def create_matchup_candidates(
 
     created = 0
     async with session_factory() as session:
+        upcoming_surface = await _team_home_surface(session, snapshot.home_team)
         for bm in snapshot.bookmakers:
             if bm.key not in RETAIL_BOOKS:
                 continue
@@ -356,7 +380,9 @@ async def create_matchup_candidates(
                     continue
                 for side in ("Over", "Under"):
                     market_fair = over_fair if side == "Over" else 1 - over_fair
-                    prob, splits = matchup_probability(games, stat, point, side, market_fair)
+                    prob, splits = matchup_probability(
+                        games, stat, point, side, market_fair, upcoming_surface=upcoming_surface
+                    )
                     implied = american_to_prob(pair[side].price)
                     edge = prob - implied
                     if edge < min_edge:
