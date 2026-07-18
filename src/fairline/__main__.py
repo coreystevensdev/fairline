@@ -216,12 +216,28 @@ async def _backfill_players(seasons: list[int]) -> None:
         print(f"backfilled {total} player games")
 
 
+async def _backfill_mlb_players(start_date: str, end_date: str) -> None:
+    from fairline.db.session import get_session_factory
+    from fairline.mlb_stats import fetch_mlb_batter_games
+
+    rows = await fetch_mlb_batter_games(start_date, end_date)
+    factory = get_session_factory()
+    async with factory() as session:
+        session.add_all(rows)
+        await session.commit()
+    print(f"backfilled {len(rows)} MLB batter games from {start_date} to {end_date}")
+
+
 async def _matchup(sport: str, markets: str, min_edge: float, max_events: int) -> None:
     from datetime import datetime, timezone
 
     from fairline.clients.odds_api import fetch_event_props, fetch_odds
     from fairline.db.session import get_session_factory
-    from fairline.matchup import create_matchup_candidates
+
+    if sport == "baseball_mlb":
+        from fairline.mlb_matchup import create_mlb_matchup_candidates as create_candidates
+    else:
+        from fairline.matchup import create_matchup_candidates as create_candidates
 
     factory = get_session_factory()
     async with httpx.AsyncClient() as client:
@@ -237,7 +253,7 @@ async def _matchup(sport: str, markets: str, min_edge: float, max_events: int) -
         for game in upcoming:
             snap = await fetch_event_props(client, sport, game.game_id, markets=markets)
             if snap is not None:
-                created += await create_matchup_candidates(factory, snap, min_edge=min_edge)
+                created += await create_candidates(factory, snap, min_edge=min_edge)
     print(f"events={len(upcoming)} candidates={created} (review at GET /api/steam)")
 
 
@@ -433,6 +449,11 @@ def main() -> None:
         "--seasons", type=int, nargs="+", default=[2023, 2024, 2025],
         help="seasons to import (default: 2023 2024 2025)",
     )
+    backfill_mlb = sub.add_parser(
+        "backfill-mlb-players", help="ingest per-game MLB batter stats via pybaseball"
+    )
+    backfill_mlb.add_argument("--start", required=True, help="YYYY-MM-DD")
+    backfill_mlb.add_argument("--end", required=True, help="YYYY-MM-DD")
     matchup = sub.add_parser(
         "matchup", help="queue prop candidates where history-adjusted numbers beat retail"
     )
@@ -479,6 +500,8 @@ def main() -> None:
         asyncio.run(_props(args.sport, args.markets, args.min_edge, args.max_events))
     elif args.command == "backfill-players":
         asyncio.run(_backfill_players(args.seasons))
+    elif args.command == "backfill-mlb-players":
+        asyncio.run(_backfill_mlb_players(args.start, args.end))
     elif args.command == "matchup":
         asyncio.run(_matchup(args.sport, args.markets, args.min_edge, args.max_events))
     elif args.command == "watch":
