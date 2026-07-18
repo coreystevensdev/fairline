@@ -6,7 +6,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from fairline.mlb_stats import _aggregate_batter_games, _derive_starters, _lookup_schedule_context
+from fairline.mlb_stats import (
+    _aggregate_batter_games,
+    _derive_starters,
+    _doubleheader_game_numbers,
+    _lookup_schedule_context,
+)
 
 # One game (game_pk=1), Yankees at home vs Red Sox. Judge goes 2-for-4 with a
 # home run (1 (single) + 4 (home run) = 5 total bases), 1 strikeout, faces
@@ -96,6 +101,31 @@ class TestDeriveStarters:
     def test_starter_is_pitcher_on_first_pitch_of_each_half_inning_group(self):
         starters = _derive_starters(_STATCAST_FIXTURE, pitcher_names=_STARTER_NAMES)
         assert starters[(1, "Bot")] == "Brayan Bello"
+
+
+class TestDoubleheaderGameNumbers:
+    def test_two_teams_each_with_a_doubleheader_get_independent_ordinals(self):
+        # Yankees play game_pk 10 then 20 on 2025-06-14; Red Sox play game_pk
+        # 15 then 16 on the same date. Ordinals are per-team, so BOS's lower
+        # game_pks (15, 16) don't shift NYY's ordinals (10, 20).
+        aggregated = [
+            {"team": "New York Yankees", "game_pk": 20, "game_date": "2025-06-14"},
+            {"team": "New York Yankees", "game_pk": 10, "game_date": "2025-06-14"},
+            {"team": "Boston Red Sox", "game_pk": 16, "game_date": "2025-06-14"},
+            {"team": "Boston Red Sox", "game_pk": 15, "game_date": "2025-06-14"},
+        ]
+        game_numbers = _doubleheader_game_numbers(aggregated)
+        assert game_numbers[("New York Yankees", 10)] == 1
+        assert game_numbers[("New York Yankees", 20)] == 2
+        assert game_numbers[("Boston Red Sox", 15)] == 1
+        assert game_numbers[("Boston Red Sox", 16)] == 2
+
+    def test_single_game_on_a_date_gets_ordinal_one(self):
+        aggregated = [
+            {"team": "New York Yankees", "game_pk": 30, "game_date": "2025-06-20"},
+        ]
+        game_numbers = _doubleheader_game_numbers(aggregated)
+        assert game_numbers[("New York Yankees", 30)] == 1
 
 
 # Real schedule_and_record Date format, verified live against the 2024 NYY
