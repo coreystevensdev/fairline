@@ -57,13 +57,29 @@ class TestComputeMlbPropSplits:
         splits = compute_mlb_prop_splits(games, "hits", 0.5, opposing_pitcher="Brayan Bello")
         assert splits["vs_pitcher"] == (MIN_VS_PITCHER_SAMPLE, MIN_VS_PITCHER_SAMPLE)
 
+    def test_vs_pitcher_one_below_floor_is_withheld(self):
+        games = [_game(hits=1)] * (MIN_VS_PITCHER_SAMPLE - 1)  # 9 PA, one short of the floor
+        splits = compute_mlb_prop_splits(games, "hits", 0.5, opposing_pitcher="Brayan Bello")
+        assert "vs_pitcher" not in splits
+
     def test_park_factor_split_filters_to_matching_bucket(self):
         games = [
             _game(team="Colorado Rockies", opponent="San Diego Padres", is_home=True, hits=1),
-            _game(team="Atlanta Braves", opponent="San Diego Padres", is_home=True, hits=0),
+            _game(team="Seattle Mariners", opponent="San Diego Padres", is_home=True, hits=0),
         ]
         splits = compute_mlb_prop_splits(games, "hits", 0.5, upcoming_park_bucket="hitter_park")
         assert splits["park_factor"] == (1, 1)  # only the Rockies (hitter-park) game counts
+
+    def test_park_factor_split_matches_away_game_via_opponent_as_host(self):
+        # Batter's own team is a neutral park; the game was played on the
+        # road at the opponent's park (Colorado, hitter-friendly), so the
+        # host resolves through game.opponent, not game.team.
+        games = [
+            _game(team="Atlanta Braves", opponent="Colorado Rockies", is_home=False, hits=1),
+            _game(team="Atlanta Braves", opponent="Seattle Mariners", is_home=False, hits=0),
+        ]
+        splits = compute_mlb_prop_splits(games, "hits", 0.5, upcoming_park_bucket="hitter_park")
+        assert splits["park_factor"] == (1, 1)  # only the road game at Colorado counts
 
     def test_neutral_upcoming_park_omits_the_split(self):
         games = [_game(team="Atlanta Braves", is_home=True)]
