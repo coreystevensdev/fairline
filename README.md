@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![249 tests](https://img.shields.io/badge/tests-249-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![270 tests](https://img.shields.io/badge/tests-270-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -170,6 +170,8 @@ fair 0.500 -> matchup 0.552; Over angles: last_5 3-2 over 250.5; last_10 7-3 ove
 ```
 
 Approved matchup picks grade automatically against box scores (`fairline grade` matches player, date, and stat; exact landings push), get their closing lines captured by `fairline settle` (which fetches props only for events holding an unsettled prop pick, one request each), and earn their own row on the agent leaderboard. Prop CLV is computed only when the closing point equals the taken point: prop lines drift too much for price-only comparison to mean anything across different numbers, so a moved line records its drift in `closing_point` and leaves `clv` honestly NULL. Every matchup pick also records which angles fed it, and `python -m fairline angles` grades the angles themselves over settled picks: record, units, and average CLV per split. An angle that cannot show value over a real sample loses its place in the pre-registered set. No manual filter user audits their filters; this is the audit. The splits are fixed in code, never searched per prop: letting anything hunt for the best-looking slice is the multiple-comparisons trap that makes every prop "8 of the last 10" at something.
+
+The same NFL engine also carries home/away, primetime, weather, and surface splits, pulled from the same nflverse games CSV `fairline backfill-nfl` already downloads for scores and closing lines, so nothing new gets fetched or installed. Home/away and primetime read directly off the game row (weekday plus kickoff hour: Monday or Thursday, or Sunday at 19:00 or later); weather flags a game as bad when wind hits 15 mph or temperature drops to 32F or below, and is dropped from the split entirely on games with no recorded temp or wind, typically domes; surface only shows up in the rationale once the upcoming opponent's home surface is known, comparing history on that same surface against the line.
 
 ### MLB batter props
 
@@ -394,3 +396,6 @@ python -m eval --out eval/report.json
 14. **Park factors are a static table from FanGraphs' 2025 season data**, refreshed by hand once a year, not a live feed.
 15. **pybaseball has no documented API contract.** It scrapes Baseball Reference, Baseball Savant, and FanGraphs directly and can break if those sites change their HTML structure.
 16. **Teammate-out correlated splits are not implemented.** They need a lineups/roster source this codebase doesn't have.
+17. **The weather split is historical only** (how has this player performed in past bad-weather games), not a forecast for the specific upcoming game; wiring a live forecast into the CLI matchup path is future work.
+18. **Primetime detection uses a fixed Sunday-kickoff-hour heuristic** (19:00 or later) plus Monday/Thursday. A schedule change outside this heuristic, a Saturday game, won't get flagged as primetime.
+19. **"Bad weather" is a fixed wind/temperature heuristic** (wind >= 15 mph or temp <= 32F), not a graded scale. Games with no recorded temp or wind, typically domes, are excluded from the weather split rather than assumed good weather.
