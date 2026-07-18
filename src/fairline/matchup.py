@@ -315,13 +315,18 @@ async def grade_prop_picks(session_factory) -> dict:
     return {"graded": graded, "missed": missed}
 
 
-async def _team_home_surface(session, team: str) -> str | None:
+async def _team_home_surface(session, team: str, sport: str) -> str | None:
     """The surface this team's stadium uses, read from any of their own
     historical home games rather than a second static lookup table."""
     row = (
         await session.execute(
             select(PlayerGame.surface)
-            .where(PlayerGame.team == team, PlayerGame.is_home.is_(True), PlayerGame.surface.is_not(None))
+            .where(
+                PlayerGame.team == team,
+                PlayerGame.sport == sport,
+                PlayerGame.is_home.is_(True),
+                PlayerGame.surface.is_not(None),
+            )
             .order_by(PlayerGame.season.desc(), PlayerGame.week.desc())
             .limit(1)
         )
@@ -355,7 +360,7 @@ async def create_matchup_candidates(
 
     created = 0
     async with session_factory() as session:
-        upcoming_surface = await _team_home_surface(session, snapshot.home_team)
+        upcoming_surface = await _team_home_surface(session, snapshot.home_team, snapshot.sport)
         for bm in snapshot.bookmakers:
             if bm.key not in RETAIL_BOOKS:
                 continue

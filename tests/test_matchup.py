@@ -489,6 +489,23 @@ async def test_team_home_surface_reads_most_recent_home_game():
         await session.commit()
 
     async with factory() as session:
-        surface = await _team_home_surface(session, "Kansas City Chiefs")
+        surface = await _team_home_surface(session, "Kansas City Chiefs", "americanfootball_nfl")
     assert surface == "grass"
+    await engine.dispose()
+
+
+async def test_team_home_surface_returns_none_with_no_home_games():
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base
+    from fairline.matchup import _team_home_surface
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        surface = await _team_home_surface(session, "Kansas City Chiefs", "americanfootball_nfl")
+    assert surface is None
     await engine.dispose()
