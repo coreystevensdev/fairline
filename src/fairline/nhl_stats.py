@@ -11,7 +11,7 @@ flag) and each skater's stat line.
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 
 import httpx
 
@@ -69,12 +69,13 @@ async def fetch_nhl_skater_games(client: httpx.AsyncClient, team: str, season: s
         opposing_goalie = _opposing_starting_goalie(boxscore, opponent_side)
         own_stats = boxscore.get("playerByGameStats", {}).get(own_side, {})
         skaters = (own_stats.get("forwards") or []) + (own_stats.get("defense") or [])
+        game_date = datetime.combine(date.fromisoformat(game["game_date"]), datetime.min.time(), tzinfo=timezone.utc)
 
         for skater in skaters:
             rows.append(
                 NhlPlayerGame(
                     season=int(season[:4]),
-                    game_date=date.fromisoformat(game["game_date"]),
+                    game_date=game_date,
                     player=skater["name"]["default"],
                     team=_TEAM_NAMES.get(team, team),
                     opponent=_TEAM_NAMES.get(opponent_code, opponent_code),
