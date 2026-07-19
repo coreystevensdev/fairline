@@ -263,3 +263,6 @@ class NbaPlayerGame(Base):
     rebounds: Mapped[int | None] = mapped_column(Integer)
     assists: Mapped[int | None] = mapped_column(Integer)
     three_pointers_made: Mapped[int | None] = mapped_column(Integer)
+    # broad position bucket ("Guard"/"Forward"/"Center"), from CommonTeamRoster;
+    # nullable since roster-name matching can fail and older backfills predate this column
+    position: Mapped[str | None] = mapped_column(String(10))
