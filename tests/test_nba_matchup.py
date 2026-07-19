@@ -12,6 +12,7 @@ import pytest
 from fairline.db.models import NbaPlayerGame
 from fairline.nba_matchup import (
     NBA_PROP_STAT_COLUMNS,
+    _player_current_team,
     compute_nba_prop_splits,
     describe_nba_splits,
     nba_matchup_probability,
@@ -68,6 +69,43 @@ def test_describe_nba_splits_lists_only_present_splits():
     text = describe_nba_splits(splits, "Over", 20.5)
     assert "home 3-2 over 20.5" in text
     assert "away" not in text
+
+
+class TestPlayerCurrentTeam:
+    def test_resolves_most_recent_team_not_fetch_order(self):
+        """A traded player's games list can arrive in any order (no ORDER BY
+        on the query) -- games[0] would silently return the stale pre-trade
+        team here, since the newer row sits second in the list."""
+        old_team_game = NbaPlayerGame(
+            season=2025, game_date=BASE_DATE, player="LeBron James",
+            team="Los Angeles Lakers", opponent="Boston Celtics",
+            is_home=True, rest_days=2, position="Forward",
+            points=25, rebounds=8, assists=9, three_pointers_made=3,
+        )
+        new_team_game = NbaPlayerGame(
+            season=2025, game_date=BASE_DATE + timedelta(days=30), player="LeBron James",
+            team="Dallas Mavericks", opponent="Miami Heat",
+            is_home=False, rest_days=2, position="Forward",
+            points=20, rebounds=6, assists=7, three_pointers_made=2,
+        )
+        assert _player_current_team([old_team_game, new_team_game]) == "Dallas Mavericks"
+        # Order in the fetched list must not matter.
+        assert _player_current_team([new_team_game, old_team_game]) == "Dallas Mavericks"
+
+    def test_resolves_by_season_when_game_dates_tie_across_seasons(self):
+        earlier_season = NbaPlayerGame(
+            season=2024, game_date=BASE_DATE, player="LeBron James",
+            team="Los Angeles Lakers", opponent="Boston Celtics",
+            is_home=True, rest_days=2, position="Forward",
+            points=25, rebounds=8, assists=9, three_pointers_made=3,
+        )
+        later_season = NbaPlayerGame(
+            season=2025, game_date=BASE_DATE, player="LeBron James",
+            team="Dallas Mavericks", opponent="Miami Heat",
+            is_home=False, rest_days=2, position="Forward",
+            points=20, rebounds=6, assists=7, three_pointers_made=2,
+        )
+        assert _player_current_team([later_season, earlier_season]) == "Dallas Mavericks"
 
 
 class TestPositionMatchupSplit:
@@ -136,12 +174,14 @@ async def test_opponent_position_rate_returns_none_with_no_matching_games():
 
 
 @pytest.mark.asyncio
-async def test_create_nba_matchup_candidates_handles_missing_position_gracefully(monkeypatch):
+async def test_create_nba_matchup_candidates_handles_missing_position_gracefully():
     """A player with no resolved position should still get a pick, just without
-    the position_matchup split -- this must never raise."""
+    the position_matchup split -- graceful degradation means a candidate still
+    gets created, not that the function quietly creates nothing."""
+    from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    from fairline.db.models import Base
+    from fairline.db.models import Base, SteamCandidate
     from fairline.nba_matchup import create_nba_matchup_candidates
     from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
 
@@ -172,6 +212,13 @@ async def test_create_nba_matchup_candidates_handles_missing_position_gracefully
         ],
     )
 
-    # Should not raise even though the only stored game has position=None.
+    # Should not raise even though the only stored game has position=None,
+    # and the fanduel Over price (+150, implied 0.40) lags the splits-adjusted
+    # ~0.545 probability by enough to clear min_edge, so a pick must land.
     created = await create_nba_matchup_candidates(factory, snapshot, min_edge=0.03)
-    assert isinstance(created, int)
+    assert created > 0
+
+    async with factory() as session:
+        rows = (await session.execute(select(SteamCandidate))).scalars().all()
+    assert len(rows) == created
+    assert all("position_matchup" not in (row.angles or "") for row in rows)

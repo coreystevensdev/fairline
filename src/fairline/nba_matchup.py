@@ -88,6 +88,15 @@ async def _player_position(session, player: str) -> str | None:
     return row
 
 
+def _player_current_team(games: list[NbaPlayerGame]) -> str:
+    """The team from the most recent game in an already-fetched games list,
+    ordered by (season, game_date) -- mirrors _player_position's "most recent
+    wins" rule instead of trusting fetch order, which is unordered and would
+    return a stale pre-trade team for a traded player."""
+    latest = max(games, key=lambda g: (g.season, g.game_date))
+    return latest.team
+
+
 async def _opponent_position_rate(
     session, opponent: str, position: str, stat: str, line: float
 ) -> tuple[int, int] | None:
@@ -161,7 +170,7 @@ async def create_nba_matchup_candidates(session_factory, snapshot, min_edge: flo
                 )
                 if not games:
                     continue
-                own_team = games[0].team
+                own_team = _player_current_team(games)
                 upcoming_opponent = (
                     snapshot.away_team if snapshot.home_team == own_team else snapshot.home_team
                 )
