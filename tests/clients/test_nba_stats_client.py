@@ -3,6 +3,8 @@ No live nba_api calls in tests -- the nba_api call itself is monkeypatched."""
 
 from __future__ import annotations
 
+from unittest.mock import call, Mock
+
 import pytest
 
 from fairline.clients.nba_stats_client import fetch_league_game_log
@@ -47,12 +49,15 @@ async def test_fetch_league_game_log_happy_path(monkeypatch):
 async def test_fetch_league_game_log_retries_on_failure(monkeypatch):
     fake = _FakeLeagueGameLog(rows=[{"PLAYER_NAME": "LeBron James", "PTS": 28}], fail_times=2)
     monkeypatch.setattr("fairline.clients.nba_stats_client._call_league_game_log", fake)
-    monkeypatch.setattr("fairline.clients.nba_stats_client.time.sleep", lambda seconds: None)
+    sleep_mock = Mock()
+    monkeypatch.setattr("fairline.clients.nba_stats_client.time.sleep", sleep_mock)
 
     rows = await fetch_league_game_log("2024-25", max_retries=3)
 
     assert rows == [{"PLAYER_NAME": "LeBron James", "PTS": 28}]
     assert fake._calls == 3
+    # 2 failures before success: backoff of 2s then 4s (base 2.0 * 2**attempt)
+    assert sleep_mock.call_args_list == [call(2.0), call(4.0)]
 
 
 @pytest.mark.asyncio
