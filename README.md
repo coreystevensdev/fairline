@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![305 tests](https://img.shields.io/badge/tests-305-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![328 tests](https://img.shields.io/badge/tests-328-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -209,6 +209,8 @@ python -m fairline matchup --sport basketball_nba --markets player_points,player
 stats.nba.com blocks most cloud and datacenter IPs, and that breaks the backfill command above on a typical hosted deploy. A GitHub issue on `nba_api` documents Heroku specifically being blocked, and the community consensus is that free proxy lists are already blacklisted too, so there's no free, reliable workaround. The client retries with exponential backoff and an explicit timeout (`nba_api` has neither by default), but backoff doesn't help against an IP-level block. `backfill-nba-players` takes a `--proxy host:port` flag that passes straight through to `nba_api`'s native proxy support; a residential-IP relay or a non-hyperscaler VPS is the realistic way to run this from a cloud host, not a code fix.
 
 `compute_nba_prop_splits` computes the same shrinkage math as the other three sports' matchup agents. Unlike MLB's vs-pitcher and NHL's vs-goalie splits, there is no vs-specific-defender split for NBA at all: no verified per-game defender-matchup data source exists, the one endpoint that identifies who guarded whom (`LeagueSeasonMatchups`) is season-aggregate only, confirmed during planning. That is a genuine data gap, not a deferred feature. Candidates land in the same review queue as NFL, MLB, NHL, and steam picks, tagged `source=nba_matchup`.
+
+A broader defense-vs-position split fills part of that gap without needing per-game defender data: `position_matchup` looks at every player sharing the same broad position bucket (Guard, Forward, or Center) who has faced the upcoming opponent, not just the one player's own history against that team. Position comes from `nba_api`'s `CommonTeamRoster` endpoint, one call per team, 30 calls for the whole league, fetched once during `backfill-nba-players` and stored in the `position` column rather than looked up per pick. `CommonTeamRoster`'s real POSITION field turned out to use letter codes ("G", "F", "C", and combos like "G-F") rather than the full words assumed during planning; the roster client maps both formats to the three canonical buckets, taking the first listed position in a combo as the primary one. A player whose position never resolved (a name mismatch against the roster feed, for instance) gets no `position_matchup` split rather than a guessed one.
 
 ### The simulation model
 
@@ -432,4 +434,7 @@ python -m eval --out eval/report.json
 24. **stats.nba.com (nba_api's data source) is documented to block requests from cloud/datacenter IPs.** The backfill command may not run reliably from a typical cloud host. No free, reliable mitigation exists; a residential-IP relay or a non-hyperscaler VPS is the realistic option, passed via the `--proxy` flag.
 25. **No vs-specific-defender split exists for NBA**, unlike MLB's vs-pitcher and NHL's vs-goalie. No verified per-game defender-matchup data source was found; the one endpoint that identifies who guarded whom is season-aggregate only.
 26. **No day/night or surface split exists for NBA**; every game is played indoors on a standardized court.
+27. **Defense-vs-position uses broad position buckets (Guard/Forward/Center), not the granular PG/SG/SF/PF/C breakdown**; nba_api's own position data doesn't expose that level of detail.
+28. **Position data comes from a season's current roster snapshot (`CommonTeamRoster`), not a per-game record.** A player who changed teams or position designation mid-season may have a stale bucket until the next backfill.
+29. **A player-name mismatch between the box-score feed and the roster feed leaves that player's position unresolved (`None`).** The `position_matchup` split is silently omitted for their picks rather than guessed.
 27. **Rest days are derived from consecutive game dates, not a field nba_api provides directly.**
