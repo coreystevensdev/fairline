@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![289 tests](https://img.shields.io/badge/tests-289-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![305 tests](https://img.shields.io/badge/tests-305-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -50,6 +50,7 @@ flowchart TD
 | BALLDONTLIE | Team season stats (all 4 sports); player season stats (NFL/MLB only) | `BALLDONTLIE_API_KEY` |
 | pybaseball | Per-game MLB batter stats for the matchup splits engine; scrapes Baseball Reference, Baseball Savant, and FanGraphs directly | None (unofficial, unauthenticated) |
 | NHL official API | Per-game NHL skater stats (schedule + boxscore) for the matchup splits engine | None (official, unauthenticated) |
+| nba_api (stats.nba.com) | Per-game NBA player stats (bulk `LeagueGameLog`) for the matchup splits engine | None (unofficial, unauthenticated); stats.nba.com blocks most cloud/datacenter IPs, see below |
 | Anthropic Claude | Pick generation with forced `submit_picks` tool call | `ANTHROPIC_API_KEY` |
 | Stripe | Subscription billing (Pro tier) | `STRIPE_SECRET_KEY` |
 
@@ -195,6 +196,19 @@ python -m fairline matchup --sport icehockey_nhl --markets player_goals,player_a
 ```
 
 `compute_nhl_prop_splits` computes last-5, last-10, season, home, away, and back-to-back-rest hit rates against the line, the same shrinkage math as the other two sports' matchup agents. Rest days aren't a field the NHL API returns; they're derived from the gap between a team's consecutive scheduled game dates during ingestion. The vs-specific-opposing-goalie split is computed too, but only surfaces at 10 or more career meetings against that goalie (`MIN_VS_GOALIE_SAMPLE`); below that floor it's left out of the result rather than shown on a couple of games. Candidates land in the same review queue as NFL, MLB, and steam picks, tagged `source=nhl_matchup`.
+
+### NBA player props
+
+NBA gets the same shrinkage-and-market-bound treatment as MLB and NHL, on splits that fit basketball's own schedule shape: last-5, last-10, season, home, away, and back-to-back rest. Data comes from `nba_api`'s bulk `LeagueGameLog` endpoint, which returns every player's box score for a season in one call rather than one request per player. Seed per-game player stats, then scan:
+
+```bash
+python -m fairline backfill-nba-players --season 2024-25
+python -m fairline matchup --sport basketball_nba --markets player_points,player_rebounds,player_assists,player_threes
+```
+
+stats.nba.com blocks most cloud and datacenter IPs, and that breaks the backfill command above on a typical hosted deploy. A GitHub issue on `nba_api` documents Heroku specifically being blocked, and the community consensus is that free proxy lists are already blacklisted too, so there's no free, reliable workaround. The client retries with exponential backoff and an explicit timeout (`nba_api` has neither by default), but backoff doesn't help against an IP-level block. `backfill-nba-players` takes a `--proxy host:port` flag that passes straight through to `nba_api`'s native proxy support; a residential-IP relay or a non-hyperscaler VPS is the realistic way to run this from a cloud host, not a code fix.
+
+`compute_nba_prop_splits` computes the same shrinkage math as the other three sports' matchup agents. Unlike MLB's vs-pitcher and NHL's vs-goalie splits, there is no vs-specific-defender split for NBA at all: no verified per-game defender-matchup data source exists, the one endpoint that identifies who guarded whom (`LeagueSeasonMatchups`) is season-aggregate only, confirmed during planning. That is a genuine data gap, not a deferred feature. Candidates land in the same review queue as NFL, MLB, NHL, and steam picks, tagged `source=nba_matchup`.
 
 ### The simulation model
 
@@ -415,3 +429,7 @@ python -m eval --out eval/report.json
 21. **No day/night split exists for NHL.** Every game is played indoors, so the dimension carries no information.
 22. **Rest days are derived from consecutive schedule dates, not a field the NHL's API provides directly.** A team's first backfilled game in a date range has no rest-days value.
 23. **The NHL's official API has no published OpenAPI spec or documented stability guarantee.** Every field this integration reads was verified against a real live response during development, not assumed from third-party documentation.
+24. **stats.nba.com (nba_api's data source) is documented to block requests from cloud/datacenter IPs.** The backfill command may not run reliably from a typical cloud host. No free, reliable mitigation exists; a residential-IP relay or a non-hyperscaler VPS is the realistic option, passed via the `--proxy` flag.
+25. **No vs-specific-defender split exists for NBA**, unlike MLB's vs-pitcher and NHL's vs-goalie. No verified per-game defender-matchup data source was found; the one endpoint that identifies who guarded whom is season-aggregate only.
+26. **No day/night or surface split exists for NBA**; every game is played indoors on a standardized court.
+27. **Rest days are derived from consecutive game dates, not a field nba_api provides directly.**
