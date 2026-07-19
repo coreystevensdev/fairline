@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 
+from fairline.clients.nba_roster_client import fetch_league_positions
 from fairline.clients.nba_stats_client import fetch_league_game_log
 from fairline.db.models import NbaPlayerGame
 
@@ -53,6 +54,7 @@ def _derive_rest_days(games: list[dict]) -> list[int | None]:
 async def fetch_nba_player_games(season: str, proxy: str | None = None) -> list[NbaPlayerGame]:
     """Every player's game log for one NBA season, in NbaPlayerGame rows."""
     rows = await fetch_league_game_log(season, proxy=proxy)
+    positions = await fetch_league_positions(season, proxy=proxy)
 
     by_player: dict[str, list[dict]] = {}
     for row in rows:
@@ -75,6 +77,7 @@ async def fetch_nba_player_games(season: str, proxy: str | None = None) -> list[
                     team=_TEAM_NAMES.get(team_code, team_code),
                     opponent=_TEAM_NAMES.get(opponent_code, opponent_code),
                     is_home=is_home,
+                    position=positions.get(player),
                     rest_days=rest,
                     points=game.get("PTS"),
                     rebounds=game.get("REB"),

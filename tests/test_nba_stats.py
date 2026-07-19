@@ -49,7 +49,11 @@ async def test_fetch_nba_player_games_happy_path(monkeypatch):
     async def fake_fetch(season, proxy=None):
         return rows
 
+    async def fake_positions(season, proxy=None):
+        return {}
+
     monkeypatch.setattr("fairline.nba_stats.fetch_league_game_log", fake_fetch)
+    monkeypatch.setattr("fairline.nba_stats.fetch_league_positions", fake_positions)
     monkeypatch.setattr("fairline.nba_stats._TEAM_NAMES", _TEAM_NAMES)
 
     result = await fetch_nba_player_games("2024-25")
@@ -64,3 +68,51 @@ async def test_fetch_nba_player_games_happy_path(monkeypatch):
     assert first.points == 28
     assert second.is_home is False
     assert second.rest_days == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_nba_player_games_joins_position(monkeypatch):
+    rows = [
+        {
+            "PLAYER_NAME": "LeBron James", "TEAM_ABBREVIATION": "LAL", "MATCHUP": "LAL vs. BOS",
+            "GAME_DATE": "2025-12-01", "PTS": 28, "REB": 8, "AST": 9, "FG3M": 3,
+        },
+    ]
+
+    async def fake_fetch(season, proxy=None):
+        return rows
+
+    async def fake_positions(season, proxy=None):
+        return {"LeBron James": "Forward"}
+
+    monkeypatch.setattr("fairline.nba_stats.fetch_league_game_log", fake_fetch)
+    monkeypatch.setattr("fairline.nba_stats.fetch_league_positions", fake_positions)
+    monkeypatch.setattr("fairline.nba_stats._TEAM_NAMES", {"LAL": "Los Angeles Lakers", "BOS": "Boston Celtics"})
+
+    result = await fetch_nba_player_games("2024-25")
+
+    assert result[0].position == "Forward"
+
+
+@pytest.mark.asyncio
+async def test_fetch_nba_player_games_leaves_position_null_when_unmatched(monkeypatch):
+    rows = [
+        {
+            "PLAYER_NAME": "Unknown Player", "TEAM_ABBREVIATION": "LAL", "MATCHUP": "LAL vs. BOS",
+            "GAME_DATE": "2025-12-01", "PTS": 10, "REB": 2, "AST": 1, "FG3M": 0,
+        },
+    ]
+
+    async def fake_fetch(season, proxy=None):
+        return rows
+
+    async def fake_positions(season, proxy=None):
+        return {"LeBron James": "Forward"}  # no entry for "Unknown Player"
+
+    monkeypatch.setattr("fairline.nba_stats.fetch_league_game_log", fake_fetch)
+    monkeypatch.setattr("fairline.nba_stats.fetch_league_positions", fake_positions)
+    monkeypatch.setattr("fairline.nba_stats._TEAM_NAMES", {"LAL": "Los Angeles Lakers", "BOS": "Boston Celtics"})
+
+    result = await fetch_nba_player_games("2024-25")
+
+    assert result[0].position is None
