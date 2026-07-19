@@ -14,19 +14,24 @@ Day/night, home/away, and park-factor splits get shrinkage-only treatment
 like the existing NFL splits, since a full season gives those real sample
 size.
 
-Vs-pitcher is not wired into create_mlb_matchup_candidates below: computing
-it for an upcoming game needs the probable starting pitcher, which needs a
-lineups/probable-starters source this codebase does not have yet. The
-function signature supports it for future wiring and for grading/backtest
-use against already-completed games, where the opposing pitcher is known.
+Vs-pitcher is now wired into create_mlb_matchup_candidates: the probable
+starting pitcher for an upcoming game comes from MLB's own free official
+Stats API (see clients/mlb_schedule_client.py), resolved per-batter by
+comparing their most-recently-recorded team against both sides of the
+snapshot. If that team matches neither side, or the schedule has no
+probable pitcher listed yet for the matching side, the split is omitted
+rather than guessed -- the same graceful-degradation principle used for the
+NBA and NFL defense-vs-position splits elsewhere in this codebase.
 """
 
 from __future__ import annotations
 
 import logging
 
+import httpx
 from sqlalchemy import select
 
+from fairline.clients.mlb_schedule_client import fetch_probable_pitchers, resolve_probable_pitcher
 from fairline.db.models import MlbPlayerGame
 from fairline.matchup import combine_splits
 from fairline.mlb_park_factors import game_park_bucket
@@ -85,6 +90,14 @@ def compute_mlb_prop_splits(
     return splits
 
 
+def _player_current_team(games: list[MlbPlayerGame]) -> str:
+    """The team from the most recent game in an already-fetched games list --
+    a fetch with no ORDER BY returns rows in an unspecified order, so trusting
+    games[0] risks a stale team for a batter who changed teams mid-season."""
+    latest = max(games, key=lambda g: g.game_date)
+    return latest.team
+
+
 def mlb_matchup_probability(
     games: list[MlbPlayerGame],
     stat: str,
@@ -114,8 +127,9 @@ async def create_mlb_matchup_candidates(session_factory, snapshot, min_edge: flo
     """Queue MLB batter-prop candidates where the splits-adjusted number beats
     retail, mirroring matchup.py's create_matchup_candidates for NFL props.
 
-    opposing_pitcher is intentionally not resolved here (see module
-    docstring); park_factor uses the upcoming game's actual host team.
+    opposing_pitcher is resolved per-batter from MLB's probable-pitcher
+    schedule (see module docstring); park_factor uses the upcoming game's
+    actual host team.
     """
     import uuid
 
@@ -132,6 +146,10 @@ async def create_mlb_matchup_candidates(session_factory, snapshot, min_edge: flo
         return 0
 
     upcoming_park_bucket = park_bucket(snapshot.home_team)
+    async with httpx.AsyncClient() as http_client:
+        probable_games = await fetch_probable_pitchers(
+            http_client, snapshot.commence_time.date().isoformat()
+        )
     created = 0
     async with session_factory() as session:
         for bm in snapshot.bookmakers:
@@ -153,10 +171,24 @@ async def create_mlb_matchup_candidates(session_factory, snapshot, min_edge: flo
                 )
                 if not games:
                     continue
+                own_team = _player_current_team(games)
+                # If the batter's resolved team matches neither side of the snapshot
+                # (a name-normalization drift, or a prop feed lagging a trade), the
+                # opposing pitcher can't be derived safely -- omit the split rather
+                # than guessing.
+                if own_team not in (snapshot.home_team, snapshot.away_team):
+                    opposing_pitcher = None
+                else:
+                    opposing_side = "away" if own_team == snapshot.home_team else "home"
+                    opposing_pitcher = resolve_probable_pitcher(
+                        probable_games, snapshot.home_team, snapshot.away_team,
+                        snapshot.commence_time, opposing_side,
+                    )
                 for side in ("Over", "Under"):
                     market_fair = over_fair if side == "Over" else 1 - over_fair
                     prob, splits = mlb_matchup_probability(
                         games, stat, point, side, market_fair,
+                        opposing_pitcher=opposing_pitcher,
                         upcoming_park_bucket=upcoming_park_bucket,
                     )
                     implied = american_to_prob(pair[side].price)

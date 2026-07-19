@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import select
 
 from fairline.db.models import MlbPlayerGame
 from fairline.mlb_matchup import (
@@ -109,3 +110,128 @@ def test_describe_mlb_splits_lists_only_present_splits():
     text = describe_mlb_splits(splits, "Over", 0.5)
     assert "night 3-2 over 0.5" in text
     assert "day" not in text  # zero-attempt splits are excluded, same as NFL's describe_splits
+
+
+def test_player_current_team_resolves_most_recent_game_date():
+    from fairline.mlb_matchup import _player_current_team
+
+    older = _game(team="New York Yankees", date=datetime(2025, 5, 1, tzinfo=timezone.utc))
+    newer = _game(team="Boston Red Sox", date=datetime(2025, 6, 14, tzinfo=timezone.utc))
+    assert _player_current_team([older, newer]) == "Boston Red Sox"
+    # Order in the fetched list must not matter.
+    assert _player_current_team([newer, older]) == "Boston Red Sox"
+
+
+@pytest.mark.asyncio
+async def test_create_mlb_matchup_candidates_includes_vs_pitcher_when_resolvable(monkeypatch):
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base, SteamCandidate
+    from fairline.mlb_matchup import create_mlb_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        # Ten prior at-bats against the upcoming probable starter -- enough
+        # to clear MIN_VS_PITCHER_SAMPLE and produce a non-degenerate split.
+        for i in range(10):
+            session.add(_game(
+                hits=1, team="New York Yankees", opponent="Boston Red Sox",
+                opposing_pitcher="Brayan Bello",
+                date=datetime(2025, 5, 1 + i, tzinfo=timezone.utc),
+            ))
+        await session.commit()
+
+    async def fake_fetch_probable_pitchers(client, date):
+        return [{
+            "home_team": "New York Yankees", "away_team": "Boston Red Sox",
+            "commence_time": datetime(2026, 7, 19, 17, 5, tzinfo=timezone.utc),
+            "home_pitcher": None, "away_pitcher": "Brayan Bello",
+        }]
+
+    monkeypatch.setattr(
+        "fairline.mlb_matchup.fetch_probable_pitchers", fake_fetch_probable_pitchers
+    )
+
+    def _o(side, price):
+        return Outcome(name=side, price=price, point=0.5, description="Aaron Judge")
+
+    snapshot = GameSnapshot(
+        game_id="evt-1", sport="baseball_mlb",
+        home_team="New York Yankees", away_team="Boston Red Sox",
+        commence_time=datetime(2026, 7, 19, 17, 5, tzinfo=timezone.utc),
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="P", markets=[
+                MarketOdds(key="batter_hits", outcomes=[_o("Over", -110), _o("Under", -110)])
+            ]),
+            BookmakerOdds(key="draftkings", title="DK", markets=[
+                MarketOdds(key="batter_hits", outcomes=[_o("Over", 120), _o("Under", -150)])
+            ]),
+        ],
+    )
+
+    created = await create_mlb_matchup_candidates(factory, snapshot, min_edge=0.03)
+    assert created == 1
+
+    async with factory() as session:
+        cand = (await session.execute(select(SteamCandidate))).scalars().one()
+    assert "vs_pitcher" in cand.angles
+
+
+@pytest.mark.asyncio
+async def test_create_mlb_matchup_candidates_omits_vs_pitcher_when_own_team_matches_neither_side(monkeypatch):
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base, SteamCandidate
+    from fairline.mlb_matchup import create_mlb_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        # Judge's stored team ("New York Yankees") matches neither side below.
+        for i in range(10):
+            session.add(_game(hits=1, team="New York Yankees", date=datetime(2025, 5, 1 + i, tzinfo=timezone.utc)))
+        await session.commit()
+
+    async def fake_fetch_probable_pitchers(client, date):
+        return [{
+            "home_team": "Miami Marlins", "away_team": "Milwaukee Brewers",
+            "commence_time": datetime(2026, 7, 19, 18, 10, tzinfo=timezone.utc),
+            "home_pitcher": "Sandy Alcantara", "away_pitcher": "Freddy Peralta",
+        }]
+
+    monkeypatch.setattr(
+        "fairline.mlb_matchup.fetch_probable_pitchers", fake_fetch_probable_pitchers
+    )
+
+    def _o(side, price):
+        return Outcome(name=side, price=price, point=0.5, description="Aaron Judge")
+
+    snapshot = GameSnapshot(
+        game_id="evt-1", sport="baseball_mlb",
+        home_team="Miami Marlins", away_team="Milwaukee Brewers",
+        commence_time=datetime(2026, 7, 19, 18, 10, tzinfo=timezone.utc),
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="P", markets=[
+                MarketOdds(key="batter_hits", outcomes=[_o("Over", -110), _o("Under", -110)])
+            ]),
+            BookmakerOdds(key="draftkings", title="DK", markets=[
+                MarketOdds(key="batter_hits", outcomes=[_o("Over", 120), _o("Under", -150)])
+            ]),
+        ],
+    )
+
+    created = await create_mlb_matchup_candidates(factory, snapshot, min_edge=0.03)
+    assert created == 1
+
+    async with factory() as session:
+        cand = (await session.execute(select(SteamCandidate))).scalars().one()
+    assert "vs_pitcher" not in (cand.angles or "")
