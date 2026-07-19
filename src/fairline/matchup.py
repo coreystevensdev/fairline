@@ -442,10 +442,30 @@ async def create_matchup_candidates(
                 )
                 if not games:
                     continue
+                own_team = _player_current_team(games)
+                # If the player's resolved team matches neither side of the snapshot
+                # (a name-normalization drift, or a prop feed lagging a trade), the
+                # opponent can't be derived safely -- omit the split rather than
+                # guessing.
+                if own_team not in (snapshot.home_team, snapshot.away_team):
+                    position_matchup = None
+                else:
+                    upcoming_opponent = (
+                        snapshot.away_team if snapshot.home_team == own_team else snapshot.home_team
+                    )
+                    player_position = await _player_position(session, snapshot.sport, player)
+                    position_matchup = (
+                        await _opponent_position_rate(
+                            session, snapshot.sport, upcoming_opponent, player_position, stat, point
+                        )
+                        if player_position
+                        else None
+                    )
                 for side in ("Over", "Under"):
                     market_fair = over_fair if side == "Over" else 1 - over_fair
                     prob, splits = matchup_probability(
-                        games, stat, point, side, market_fair, upcoming_surface=upcoming_surface
+                        games, stat, point, side, market_fair,
+                        upcoming_surface=upcoming_surface, position_matchup=position_matchup,
                     )
                     implied = american_to_prob(pair[side].price)
                     edge = prob - implied

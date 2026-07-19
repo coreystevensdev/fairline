@@ -293,6 +293,133 @@ async def test_candidates_record_their_angles_and_report_grades_them(session_fac
     assert report["last_10"]["units"] == pytest.approx(1.0)
 
 
+async def test_create_matchup_candidates_handles_missing_position_gracefully(session_factory):
+    """A player with no resolved position should still get a pick, just
+    without the position_matchup split -- graceful degradation means a
+    candidate still gets created, not that the function quietly creates
+    nothing."""
+    from fairline.db.models import SteamCandidate
+    from fairline.matchup import create_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    async with session_factory() as session:
+        for w in range(1, 11):
+            game = _pg(w, 300.0)
+            game.position = None
+            session.add(game)
+        await session.commit()
+
+    def _o(side, price):
+        return Outcome(name=side, price=price, point=275.5, description="Patrick Mahomes")
+
+    snapshot = GameSnapshot(
+        game_id="evt-1", sport="americanfootball_nfl",
+        home_team="Kansas City Chiefs", away_team="Las Vegas Raiders", commence_time=NOW,
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="P", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[_o("Over", -110), _o("Under", -110)])
+            ]),
+            BookmakerOdds(key="draftkings", title="DK", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[_o("Over", 100), _o("Under", -120)])
+            ]),
+        ],
+    )
+
+    created = await create_matchup_candidates(session_factory, snapshot, min_edge=0.03)
+    assert created == 1
+
+    async with session_factory() as session:
+        cand = (await session.execute(select(SteamCandidate))).scalars().one()
+    assert "position_matchup" not in (cand.angles or "")
+
+
+async def test_create_matchup_candidates_omits_split_when_own_team_matches_neither_side(session_factory):
+    """If the player's resolved current team is neither the snapshot's home
+    nor away team (a name mismatch, or a prop feed lagging a trade), the
+    opponent can't be derived safely -- the split must be omitted, not
+    guessed."""
+    from fairline.db.models import SteamCandidate
+    from fairline.matchup import create_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    async with session_factory() as session:
+        # Player's stored team ("Kansas City Chiefs") matches neither side below.
+        for w in range(1, 11):
+            session.add(_pg(w, 300.0))
+        await session.commit()
+
+    def _o(side, price):
+        return Outcome(name=side, price=price, point=275.5, description="Patrick Mahomes")
+
+    snapshot = GameSnapshot(
+        game_id="evt-1", sport="americanfootball_nfl",
+        home_team="Miami Dolphins", away_team="New York Jets", commence_time=NOW,
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="P", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[_o("Over", -110), _o("Under", -110)])
+            ]),
+            BookmakerOdds(key="draftkings", title="DK", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[_o("Over", 100), _o("Under", -120)])
+            ]),
+        ],
+    )
+
+    created = await create_matchup_candidates(session_factory, snapshot, min_edge=0.03)
+    assert created == 1
+
+    async with session_factory() as session:
+        cand = (await session.execute(select(SteamCandidate))).scalars().one()
+    assert "position_matchup" not in (cand.angles or "")
+
+
+async def test_create_matchup_candidates_includes_position_matchup_when_resolvable(session_factory):
+    """End-to-end: a resolvable opponent + position with supportive history
+    produces a position_matchup angle on the candidate."""
+    from fairline.db.models import SteamCandidate
+    from fairline.matchup import create_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    async with session_factory() as session:
+        for w in range(1, 11):
+            session.add(_pg(w, 300.0, opponent="Las Vegas Raiders"))
+        # Another QB who has faced the upcoming opponent (Buffalo Bills),
+        # over the line -- this is what makes position_matchup resolvable
+        # and non-degenerate.
+        session.add(
+            PlayerGame(
+                sport="americanfootball_nfl", season=2025, week=9,
+                game_date=NOW - timedelta(days=7),
+                player="Josh Allen", team="Kansas City Chiefs", opponent="Buffalo Bills",
+                position="QB", passing_yards=310.0,
+            )
+        )
+        await session.commit()
+
+    def _o(side, price):
+        return Outcome(name=side, price=price, point=275.5, description="Patrick Mahomes")
+
+    snapshot = GameSnapshot(
+        game_id="evt-1", sport="americanfootball_nfl",
+        home_team="Kansas City Chiefs", away_team="Buffalo Bills", commence_time=NOW,
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="P", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[_o("Over", -110), _o("Under", -110)])
+            ]),
+            BookmakerOdds(key="draftkings", title="DK", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[_o("Over", 100), _o("Under", -120)])
+            ]),
+        ],
+    )
+
+    created = await create_matchup_candidates(session_factory, snapshot, min_edge=0.03)
+    assert created == 1
+
+    async with session_factory() as session:
+        cand = (await session.execute(select(SteamCandidate))).scalars().one()
+    assert "position_matchup" in cand.angles
+    assert "position_matchup 1-0" in cand.rationale
+
+
 async def test_angle_report_ignores_ungraded_and_angleless_picks(session_factory):
     from fairline.matchup import angle_report
 
