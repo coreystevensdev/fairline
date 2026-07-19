@@ -188,6 +188,11 @@ class PlayerGame(Base):
     surface: Mapped[str | None] = mapped_column(String(30))
     is_primetime: Mapped[bool | None] = mapped_column(Boolean)
     bad_weather: Mapped[bool | None] = mapped_column(Boolean)
+    # nflverse's weekly stats CSV already carries this per row (QB/RB/WR/TE,
+    # the same set parse_player_stats filters to); previously read only to
+    # filter, now also stored. Nullable since backfills before this column
+    # predate it.
+    position: Mapped[str | None] = mapped_column(String(10))
 
 
 class MlbPlayerGame(Base):
