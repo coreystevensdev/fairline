@@ -171,15 +171,22 @@ async def create_nba_matchup_candidates(session_factory, snapshot, min_edge: flo
                 if not games:
                     continue
                 own_team = _player_current_team(games)
-                upcoming_opponent = (
-                    snapshot.away_team if snapshot.home_team == own_team else snapshot.home_team
-                )
-                player_position = await _player_position(session, player)
-                position_matchup = (
-                    await _opponent_position_rate(session, upcoming_opponent, player_position, stat, point)
-                    if player_position
-                    else None
-                )
+                # If the player's resolved team matches neither side of the snapshot
+                # (a name-normalization drift, or a prop feed lagging a trade), the
+                # opponent can't be derived safely -- omit the split rather than
+                # guessing, same principle as the traded-player team-resolution fix.
+                if own_team not in (snapshot.home_team, snapshot.away_team):
+                    position_matchup = None
+                else:
+                    upcoming_opponent = (
+                        snapshot.away_team if snapshot.home_team == own_team else snapshot.home_team
+                    )
+                    player_position = await _player_position(session, player)
+                    position_matchup = (
+                        await _opponent_position_rate(session, upcoming_opponent, player_position, stat, point)
+                        if player_position
+                        else None
+                    )
                 for side in ("Over", "Under"):
                     market_fair = over_fair if side == "Over" else 1 - over_fair
                     prob, splits = nba_matchup_probability(

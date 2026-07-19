@@ -222,3 +222,52 @@ async def test_create_nba_matchup_candidates_handles_missing_position_gracefully
         rows = (await session.execute(select(SteamCandidate))).scalars().all()
     assert len(rows) == created
     assert all("position_matchup" not in (row.angles or "") for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_create_nba_matchup_candidates_omits_split_when_own_team_matches_neither_side():
+    """If the player's resolved current team is neither the snapshot's home nor
+    away team (a name mismatch, or a prop feed lagging a trade), the opponent
+    can't be derived safely -- the split must be omitted, not guessed."""
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base, SteamCandidate
+    from fairline.nba_matchup import create_nba_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        # Player's stored team ("Los Angeles Lakers") matches neither side below.
+        session.add(_game(day=0, position="Forward"))
+        await session.commit()
+
+    snapshot = GameSnapshot(
+        game_id="g1", sport="basketball_nba", home_team="Miami Heat",
+        away_team="Denver Nuggets", commence_time=BASE_DATE, bookmakers=[
+            BookmakerOdds(key="pinnacle", title="Pinnacle", markets=[
+                MarketOdds(key="player_points", outcomes=[
+                    Outcome(name="Over", price=-110, point=20.5, description="LeBron James"),
+                    Outcome(name="Under", price=-110, point=20.5, description="LeBron James"),
+                ])
+            ]),
+            BookmakerOdds(key="fanduel", title="FanDuel", markets=[
+                MarketOdds(key="player_points", outcomes=[
+                    Outcome(name="Over", price=+150, point=20.5, description="LeBron James"),
+                    Outcome(name="Under", price=-200, point=20.5, description="LeBron James"),
+                ])
+            ]),
+        ],
+    )
+
+    created = await create_nba_matchup_candidates(factory, snapshot, min_edge=0.03)
+    assert created > 0
+
+    async with factory() as session:
+        rows = (await session.execute(select(SteamCandidate))).scalars().all()
+    assert len(rows) == created
+    assert all("position_matchup" not in (row.angles or "") for row in rows)
