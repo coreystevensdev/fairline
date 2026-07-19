@@ -245,6 +245,18 @@ async def _backfill_nhl_players(team: str, season: str) -> None:
     print(f"backfilled {len(rows)} NHL skater games for {team} season {season}")
 
 
+async def _backfill_nba_players(season: str, proxy: str | None) -> None:
+    from fairline.db.session import get_session_factory
+    from fairline.nba_stats import fetch_nba_player_games
+
+    rows = await fetch_nba_player_games(season, proxy=proxy)
+    factory = get_session_factory()
+    async with factory() as session:
+        session.add_all(rows)
+        await session.commit()
+    print(f"backfilled {len(rows)} NBA player games for season {season}")
+
+
 async def _matchup(sport: str, markets: str, min_edge: float, max_events: int) -> None:
     from datetime import datetime, timezone
 
@@ -255,6 +267,8 @@ async def _matchup(sport: str, markets: str, min_edge: float, max_events: int) -
         from fairline.mlb_matchup import create_mlb_matchup_candidates as create_candidates
     elif sport == "icehockey_nhl":
         from fairline.nhl_matchup import create_nhl_matchup_candidates as create_candidates
+    elif sport == "basketball_nba":
+        from fairline.nba_matchup import create_nba_matchup_candidates as create_candidates
     else:
         from fairline.matchup import create_matchup_candidates as create_candidates
 
@@ -478,6 +492,14 @@ def main() -> None:
     )
     backfill_nhl.add_argument("--team", required=True, help="3-letter team code, e.g. EDM")
     backfill_nhl.add_argument("--season", required=True, help="8-digit season code, e.g. 20252026")
+    backfill_nba = sub.add_parser(
+        "backfill-nba-players", help="ingest per-game NBA player stats via nba_api"
+    )
+    backfill_nba.add_argument("--season", required=True, help='e.g. "2024-25"')
+    backfill_nba.add_argument(
+        "--proxy", default=None,
+        help="optional host:port proxy; stats.nba.com blocks most cloud/datacenter IPs",
+    )
     matchup = sub.add_parser(
         "matchup", help="queue prop candidates where history-adjusted numbers beat retail"
     )
@@ -528,6 +550,8 @@ def main() -> None:
         asyncio.run(_backfill_mlb_players(args.start, args.end))
     elif args.command == "backfill-nhl-players":
         asyncio.run(_backfill_nhl_players(args.team, args.season))
+    elif args.command == "backfill-nba-players":
+        asyncio.run(_backfill_nba_players(args.season, args.proxy))
     elif args.command == "matchup":
         asyncio.run(_matchup(args.sport, args.markets, args.min_edge, args.max_events))
     elif args.command == "watch":
