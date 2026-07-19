@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from fairline.db.models import NbaPlayerGame
 from fairline.nba_matchup import (
     NBA_PROP_STAT_COLUMNS,
@@ -18,11 +20,11 @@ from fairline.nba_matchup import (
 BASE_DATE = datetime(2025, 12, 1, tzinfo=timezone.utc)
 
 
-def _game(points=25, is_home=True, rest_days=2, season=2025, day=0):
+def _game(points=25, is_home=True, rest_days=2, season=2025, day=0, position="Forward"):
     return NbaPlayerGame(
         season=season, game_date=BASE_DATE + timedelta(days=day), player="LeBron James",
         team="Los Angeles Lakers", opponent="Boston Celtics",
-        is_home=is_home, rest_days=rest_days,
+        is_home=is_home, rest_days=rest_days, position=position,
         points=points, rebounds=8, assists=9, three_pointers_made=3,
     )
 
@@ -66,3 +68,110 @@ def test_describe_nba_splits_lists_only_present_splits():
     text = describe_nba_splits(splits, "Over", 20.5)
     assert "home 3-2 over 20.5" in text
     assert "away" not in text
+
+
+class TestPositionMatchupSplit:
+    def test_position_matchup_included_when_provided(self):
+        games = [_game(day=0)]
+        splits = compute_nba_prop_splits(games, "points", 20.5, position_matchup=(6, 10))
+        assert splits["position_matchup"] == (6, 10)
+
+    def test_position_matchup_absent_when_not_provided(self):
+        games = [_game(day=0)]
+        splits = compute_nba_prop_splits(games, "points", 20.5)
+        assert "position_matchup" not in splits
+
+
+@pytest.mark.asyncio
+async def test_opponent_position_rate_queries_across_players():
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base
+    from fairline.nba_matchup import _opponent_position_rate
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add_all([
+            _game(day=0, points=25),  # LeBron James, vs Boston Celtics, Forward, per _game's defaults
+            NbaPlayerGame(
+                season=2025, game_date=BASE_DATE + timedelta(days=1), player="Kevin Durant",
+                team="Phoenix Suns", opponent="Boston Celtics", is_home=True, rest_days=2,
+                position="Forward", points=30, rebounds=7, assists=4, three_pointers_made=2,
+            ),
+            NbaPlayerGame(
+                season=2025, game_date=BASE_DATE + timedelta(days=2), player="Jayson Tatum",
+                team="Boston Celtics", opponent="Miami Heat", is_home=True, rest_days=2,
+                position="Forward", points=25, rebounds=8, assists=5, three_pointers_made=3,
+            ),
+        ])
+        await session.commit()
+
+    async with factory() as session:
+        rate = await _opponent_position_rate(session, "Boston Celtics", "Forward", "points", 20.5)
+
+    # Two Forwards (LeBron, Durant) faced Boston Celtics as their opponent, both scored above 20.5.
+    # Tatum's row is irrelevant: his opponent is Miami Heat, not Boston Celtics.
+    assert rate == (2, 2)
+
+
+@pytest.mark.asyncio
+async def test_opponent_position_rate_returns_none_with_no_matching_games():
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base
+    from fairline.nba_matchup import _opponent_position_rate
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        rate = await _opponent_position_rate(session, "Boston Celtics", "Center", "points", 20.5)
+    assert rate is None
+
+
+@pytest.mark.asyncio
+async def test_create_nba_matchup_candidates_handles_missing_position_gracefully(monkeypatch):
+    """A player with no resolved position should still get a pick, just without
+    the position_matchup split -- this must never raise."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base
+    from fairline.nba_matchup import create_nba_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        session.add(_game(day=0, position=None))
+        await session.commit()
+
+    snapshot = GameSnapshot(
+        game_id="g1", sport="basketball_nba", home_team="Los Angeles Lakers",
+        away_team="Boston Celtics", commence_time=BASE_DATE, bookmakers=[
+            BookmakerOdds(key="pinnacle", title="Pinnacle", markets=[
+                MarketOdds(key="player_points", outcomes=[
+                    Outcome(name="Over", price=-110, point=20.5, description="LeBron James"),
+                    Outcome(name="Under", price=-110, point=20.5, description="LeBron James"),
+                ])
+            ]),
+            BookmakerOdds(key="fanduel", title="FanDuel", markets=[
+                MarketOdds(key="player_points", outcomes=[
+                    Outcome(name="Over", price=+150, point=20.5, description="LeBron James"),
+                    Outcome(name="Under", price=-200, point=20.5, description="LeBron James"),
+                ])
+            ]),
+        ],
+    )
+
+    # Should not raise even though the only stored game has position=None.
+    created = await create_nba_matchup_candidates(factory, snapshot, min_edge=0.03)
+    assert isinstance(created, int)

@@ -35,9 +35,14 @@ NBA_PROP_STAT_COLUMNS = {
 
 
 def compute_nba_prop_splits(
-    games: list[NbaPlayerGame], stat: str, line: float
+    games: list[NbaPlayerGame], stat: str, line: float,
+    position_matchup: tuple[int, int] | None = None,
 ) -> dict[str, tuple[int, int]]:
-    """Pre-registered NBA splits: last-N, season, home/away, back-to-back."""
+    """Pre-registered NBA splits: last-N, season, home/away, back-to-back,
+    plus an optional defense-vs-position split resolved by the caller (this
+    function has no DB session, so it can't run the cross-player query
+    itself -- position_matchup is computed by _opponent_position_rate and
+    passed in)."""
     played = [g for g in games if getattr(g, stat) is not None]
     played.sort(key=lambda g: g.game_date, reverse=True)
 
@@ -46,7 +51,7 @@ def compute_nba_prop_splits(
         return hits, len(subset)
 
     latest_season = played[0].season if played else 0
-    return {
+    splits = {
         "last_5": rate(played[:5]),
         "last_10": rate(played[:10]),
         "season": rate([g for g in played if g.season == latest_season]),
@@ -54,16 +59,60 @@ def compute_nba_prop_splits(
         "away": rate([g for g in played if g.is_home is False]),
         "back_to_back": rate([g for g in played if g.rest_days is not None and g.rest_days <= 1]),
     }
+    if position_matchup is not None:
+        splits["position_matchup"] = position_matchup
+    return splits
 
 
 def nba_matchup_probability(
-    games: list[NbaPlayerGame], stat: str, line: float, side: str, market_fair: float
+    games: list[NbaPlayerGame], stat: str, line: float, side: str, market_fair: float,
+    position_matchup: tuple[int, int] | None = None,
 ) -> tuple[float, dict[str, tuple[int, int]]]:
     """Probability the side hits, with the splits that produced it."""
-    splits = compute_nba_prop_splits(games, stat, line)
+    splits = compute_nba_prop_splits(games, stat, line, position_matchup=position_matchup)
     over_fair = market_fair if side == "Over" else 1 - market_fair
     over_prob = combine_splits(splits, base_rate=over_fair, market_fair=over_fair)
     return (over_prob if side == "Over" else 1 - over_prob), splits
+
+
+async def _player_position(session, player: str) -> str | None:
+    """The player's own most-recently-recorded position, or None if unresolved."""
+    row = (
+        await session.execute(
+            select(NbaPlayerGame.position)
+            .where(NbaPlayerGame.player == player, NbaPlayerGame.position.is_not(None))
+            .order_by(NbaPlayerGame.season.desc(), NbaPlayerGame.game_date.desc())
+            .limit(1)
+        )
+    ).scalar()
+    return row
+
+
+async def _opponent_position_rate(
+    session, opponent: str, position: str, stat: str, line: float
+) -> tuple[int, int] | None:
+    """How every player at `position` has fared against `opponent` on `stat`
+    vs `line`, across all players who have faced them, not just one player's
+    own history. Returns None when no qualifying games exist at all, so the
+    caller can omit the split rather than showing a false (0, 0)."""
+    column = getattr(NbaPlayerGame, stat)
+    games = (
+        (
+            await session.execute(
+                select(NbaPlayerGame).where(
+                    NbaPlayerGame.opponent == opponent,
+                    NbaPlayerGame.position == position,
+                    column.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not games:
+        return None
+    hits = sum(1 for g in games if getattr(g, stat) > line)
+    return hits, len(games)
 
 
 def describe_nba_splits(splits: dict[str, tuple[int, int]], side: str, line: float) -> str:
@@ -112,9 +161,21 @@ async def create_nba_matchup_candidates(session_factory, snapshot, min_edge: flo
                 )
                 if not games:
                     continue
+                own_team = games[0].team
+                upcoming_opponent = (
+                    snapshot.away_team if snapshot.home_team == own_team else snapshot.home_team
+                )
+                player_position = await _player_position(session, player)
+                position_matchup = (
+                    await _opponent_position_rate(session, upcoming_opponent, player_position, stat, point)
+                    if player_position
+                    else None
+                )
                 for side in ("Over", "Under"):
                     market_fair = over_fair if side == "Over" else 1 - over_fair
-                    prob, splits = nba_matchup_probability(games, stat, point, side, market_fair)
+                    prob, splits = nba_matchup_probability(
+                        games, stat, point, side, market_fair, position_matchup=position_matchup
+                    )
                     implied = american_to_prob(pair[side].price)
                     edge = prob - implied
                     if edge < min_edge:
