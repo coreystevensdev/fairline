@@ -372,6 +372,89 @@ async def test_create_matchup_candidates_omits_split_when_own_team_matches_neith
     assert "position_matchup" not in (cand.angles or "")
 
 
+async def test_create_matchup_candidates_batches_the_game_fetch_across_players():
+    """Two players on the same slate must each get correct, independent
+    splits from a single batched query, not one SELECT per player -- and the
+    two players' histories must not bleed into each other's candidate."""
+    from sqlalchemy import event
+
+    from fairline.db.models import SteamCandidate
+    from fairline.matchup import create_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        for w in range(1, 11):
+            session.add(_pg(w, 300.0))  # Patrick Mahomes: ten straight 300-yard games
+            session.add(
+                PlayerGame(
+                    sport="americanfootball_nfl", season=2025, week=w,
+                    game_date=NOW - timedelta(days=7 * (20 - w)),
+                    player="Josh Allen", team="Buffalo Bills", opponent="Miami Dolphins",
+                    position="QB", passing_yards=50.0,  # ten straight games well under
+                )
+            )
+        await session.commit()
+
+    def _o(side, price, player, point=275.5):
+        return Outcome(name=side, price=price, point=point, description=player)
+
+    snapshot = GameSnapshot(
+        game_id="evt-multi",
+        sport="americanfootball_nfl",
+        home_team="Kansas City Chiefs",
+        away_team="Las Vegas Raiders",
+        commence_time=NOW,
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="P", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[
+                    _o("Over", -110, "Patrick Mahomes"), _o("Under", -110, "Patrick Mahomes"),
+                    _o("Over", -110, "Josh Allen", point=95.5), _o("Under", -110, "Josh Allen", point=95.5),
+                ])
+            ]),
+            BookmakerOdds(key="draftkings", title="DK", markets=[
+                MarketOdds(key="player_pass_yds", outcomes=[
+                    _o("Over", 100, "Patrick Mahomes"), _o("Under", -120, "Patrick Mahomes"),
+                    _o("Over", -120, "Josh Allen", point=95.5), _o("Under", 100, "Josh Allen", point=95.5),
+                ])
+            ]),
+        ],
+    )
+
+    batched_game_fetches = 0
+
+    def _count_select(conn, cursor, statement, *args, **kwargs):
+        nonlocal batched_game_fetches
+        if "player_games.player IN" in statement:
+            batched_game_fetches += 1
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _count_select)
+    try:
+        created = await create_matchup_candidates(factory, snapshot, min_edge=0.03)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _count_select)
+
+    # one batched IN-list fetch covering both players, not one query per player
+    assert batched_game_fetches == 1
+    assert created == 2
+
+    async with factory() as session:
+        candidates = (await session.execute(select(SteamCandidate))).scalars().all()
+    by_player = {c.selection.rsplit(" ", 2)[0]: c for c in candidates}
+    assert by_player["Patrick Mahomes"].selection == "Patrick Mahomes Over 275.5"
+    assert by_player["Josh Allen"].selection == "Josh Allen Under 95.5"
+    # each candidate's splits must reflect that player's own games, not the
+    # other player's -- a batching bug that mixed the two players' rows
+    # together would show a mismatched last_10 record here
+    assert "last_10 10-0" in by_player["Patrick Mahomes"].rationale
+    assert "last_10 0-10" in by_player["Josh Allen"].rationale
+    await engine.dispose()
+
+
 async def test_create_matchup_candidates_includes_position_matchup_when_resolvable(session_factory):
     """End-to-end: a resolvable opponent + position with supportive history
     produces a position_matchup angle on the candidate."""
@@ -673,31 +756,24 @@ def test_player_current_team_resolves_most_recent_not_fetch_order():
     assert _player_current_team([new_team_game, old_team_game]) == "New York Jets"
 
 
-async def test_player_position_resolves_most_recent(session_factory):
-    from fairline.matchup import _player_position
+def test_position_from_games_resolves_most_recent():
+    from fairline.matchup import _position_from_games
 
-    async with session_factory() as session:
-        session.add_all([
-            _pg(1, 250.0, season=2024),
-            PlayerGame(
-                sport="americanfootball_nfl", season=2025, week=5,
-                game_date=NOW, player="Patrick Mahomes", team="Kansas City Chiefs",
-                opponent="Buffalo Bills", position="QB", passing_yards=200.0,
-            ),
-        ])
-        await session.commit()
-
-    async with session_factory() as session:
-        position = await _player_position(session, "americanfootball_nfl", "Patrick Mahomes")
-    assert position == "QB"
+    older = _pg(1, 250.0, season=2024, position="RB")
+    newer = PlayerGame(
+        sport="americanfootball_nfl", season=2025, week=5,
+        game_date=NOW, player="Patrick Mahomes", team="Kansas City Chiefs",
+        opponent="Buffalo Bills", position="QB", passing_yards=200.0,
+    )
+    assert _position_from_games([older, newer]) == "QB"
+    # Order in the fetched list must not matter.
+    assert _position_from_games([newer, older]) == "QB"
 
 
-async def test_player_position_returns_none_when_unresolved(session_factory):
-    from fairline.matchup import _player_position
+def test_position_from_games_returns_none_when_unresolved():
+    from fairline.matchup import _position_from_games
 
-    async with session_factory() as session:
-        position = await _player_position(session, "americanfootball_nfl", "Nobody")
-    assert position is None
+    assert _position_from_games([]) is None
 
 
 async def test_team_home_surface_reads_most_recent_home_game():

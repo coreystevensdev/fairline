@@ -75,26 +75,21 @@ def nba_matchup_probability(
     return (over_prob if side == "Over" else 1 - over_prob), splits
 
 
-async def _player_position(session, player: str) -> str | None:
-    """The player's own most-recently-recorded position, or None if unresolved."""
-    row = (
-        await session.execute(
-            select(NbaPlayerGame.position)
-            .where(NbaPlayerGame.player == player, NbaPlayerGame.position.is_not(None))
-            .order_by(NbaPlayerGame.season.desc(), NbaPlayerGame.game_date.desc())
-            .limit(1)
-        )
-    ).scalar()
-    return row
-
-
 def _player_current_team(games: list[NbaPlayerGame]) -> str:
     """The team from the most recent game in an already-fetched games list,
-    ordered by (season, game_date) -- mirrors _player_position's "most recent
-    wins" rule instead of trusting fetch order, which is unordered and would
-    return a stale pre-trade team for a traded player."""
+    ordered by (season, game_date) instead of trusting fetch order, which is
+    unordered and would return a stale pre-trade team for a traded player."""
     latest = max(games, key=lambda g: (g.season, g.game_date))
     return latest.team
+
+
+def _position_from_games(games: list[NbaPlayerGame]) -> str | None:
+    """The player's own most-recently-recorded position (most recent wins),
+    read from an already-fetched games list instead of a fresh query."""
+    with_position = [g for g in games if g.position is not None]
+    if not with_position:
+        return None
+    return max(with_position, key=lambda g: (g.season, g.game_date)).position
 
 
 async def _opponent_position_rate(
@@ -149,25 +144,55 @@ async def create_nba_matchup_candidates(session_factory, snapshot, min_edge: flo
     if not fair_by_key:
         return 0
 
+    retail_pairs = {
+        bm.key: _paired_outcomes(snapshot, bm.key)
+        for bm in snapshot.bookmakers
+        if bm.key in RETAIL_BOOKS
+    }
+    players_needed = {
+        player
+        for pairs in retail_pairs.values()
+        for (market, player, point) in pairs
+        if (market, player, point) in fair_by_key and market in NBA_PROP_STAT_COLUMNS
+    }
+
     created = 0
     async with session_factory() as session:
-        for bm in snapshot.bookmakers:
-            if bm.key not in RETAIL_BOOKS:
-                continue
-            for (market, player, point), pair in _paired_outcomes(snapshot, bm.key).items():
+        games_by_player: dict[str, list[NbaPlayerGame]] = {}
+        if players_needed:
+            rows = (
+                (
+                    await session.execute(
+                        select(NbaPlayerGame).where(NbaPlayerGame.player.in_(players_needed))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for row in rows:
+                games_by_player.setdefault(row.player, []).append(row)
+
+        pending_selections = {
+            (row.market, row.selection, row.book)
+            for row in (
+                await session.execute(
+                    select(
+                        SteamCandidate.market, SteamCandidate.selection, SteamCandidate.book
+                    ).where(
+                        SteamCandidate.game_id == snapshot.game_id,
+                        SteamCandidate.status == "pending",
+                    )
+                )
+            ).all()
+        }
+
+        for bm_key, pairs in retail_pairs.items():
+            for (market, player, point), pair in pairs.items():
                 over_fair = fair_by_key.get((market, player, point))
                 stat = NBA_PROP_STAT_COLUMNS.get(market)
                 if over_fair is None or stat is None:
                     continue
-                games = (
-                    (
-                        await session.execute(
-                            select(NbaPlayerGame).where(NbaPlayerGame.player == player)
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
+                games = games_by_player.get(player)
                 if not games:
                     continue
                 own_team = _player_current_team(games)
@@ -181,35 +206,27 @@ async def create_nba_matchup_candidates(session_factory, snapshot, min_edge: flo
                     upcoming_opponent = (
                         snapshot.away_team if snapshot.home_team == own_team else snapshot.home_team
                     )
-                    player_position = await _player_position(session, player)
+                    player_position = _position_from_games(games)
                     position_matchup = (
                         await _opponent_position_rate(session, upcoming_opponent, player_position, stat, point)
                         if player_position
                         else None
                     )
+                # Splits don't depend on side, so compute them once per
+                # player/market instead of re-sorting the same games list twice.
+                splits = compute_nba_prop_splits(games, stat, point, position_matchup=position_matchup)
+                raw_over_prob = combine_splits(splits, base_rate=over_fair, market_fair=over_fair)
                 for side in ("Over", "Under"):
                     market_fair = over_fair if side == "Over" else 1 - over_fair
-                    prob, splits = nba_matchup_probability(
-                        games, stat, point, side, market_fair, position_matchup=position_matchup
-                    )
+                    prob = raw_over_prob if side == "Over" else 1 - raw_over_prob
                     implied = american_to_prob(pair[side].price)
                     edge = prob - implied
                     if edge < min_edge:
                         continue
                     selection = f"{player} {side} {point:g}"
-                    already = (
-                        await session.execute(
-                            select(SteamCandidate.id).where(
-                                SteamCandidate.game_id == snapshot.game_id,
-                                SteamCandidate.market == market,
-                                SteamCandidate.selection == selection,
-                                SteamCandidate.book == bm.key,
-                                SteamCandidate.status == "pending",
-                            )
-                        )
-                    ).scalar()
-                    if already:
+                    if (market, selection, bm_key) in pending_selections:
                         continue
+                    pending_selections.add((market, selection, bm_key))
                     price = pair[side].price
                     win_amount = price / 100 if price > 0 else 100 / abs(price)
                     session.add(
@@ -222,7 +239,7 @@ async def create_nba_matchup_candidates(session_factory, snapshot, min_edge: flo
                             commence_time=snapshot.commence_time,
                             market=market,
                             selection=selection,
-                            book=bm.key,
+                            book=bm_key,
                             price=price,
                             sharp_probability=prob,
                             implied_probability=implied,

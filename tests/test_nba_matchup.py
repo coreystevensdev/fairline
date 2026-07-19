@@ -271,3 +271,77 @@ async def test_create_nba_matchup_candidates_omits_split_when_own_team_matches_n
         rows = (await session.execute(select(SteamCandidate))).scalars().all()
     assert len(rows) == created
     assert all("position_matchup" not in (row.angles or "") for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_create_nba_matchup_candidates_batches_the_game_fetch_across_players():
+    """Two players on the same slate must each keep their own game history in
+    the batched IN-list fetch -- a grouping bug would let one player's splits
+    leak into the other's candidate."""
+    from sqlalchemy import event, select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base, SteamCandidate
+    from fairline.nba_matchup import create_nba_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        for day in range(10):
+            session.add(_game(points=30, day=day))  # LeBron James: ten games well over 20.5
+            session.add(NbaPlayerGame(
+                season=2025, game_date=BASE_DATE + timedelta(days=day), player="Jayson Tatum",
+                team="Los Angeles Lakers", opponent="Boston Celtics",
+                is_home=True, rest_days=2, position="Forward",
+                points=5, rebounds=8, assists=9, three_pointers_made=3,  # well under 20.5
+            ))
+        await session.commit()
+
+    def _o(side, price, player):
+        return Outcome(name=side, price=price, point=20.5, description=player)
+
+    snapshot = GameSnapshot(
+        game_id="evt-multi", sport="basketball_nba",
+        home_team="Los Angeles Lakers", away_team="Boston Celtics", commence_time=BASE_DATE,
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="Pinnacle", markets=[
+                MarketOdds(key="player_points", outcomes=[
+                    _o("Over", -110, "LeBron James"), _o("Under", -110, "LeBron James"),
+                    _o("Over", -110, "Jayson Tatum"), _o("Under", -110, "Jayson Tatum"),
+                ])
+            ]),
+            BookmakerOdds(key="fanduel", title="FanDuel", markets=[
+                MarketOdds(key="player_points", outcomes=[
+                    _o("Over", 150, "LeBron James"), _o("Under", -200, "LeBron James"),
+                    _o("Under", 150, "Jayson Tatum"), _o("Over", -200, "Jayson Tatum"),
+                ])
+            ]),
+        ],
+    )
+
+    batched_game_fetches = 0
+
+    def _count_select(conn, cursor, statement, *args, **kwargs):
+        nonlocal batched_game_fetches
+        if "nba_player_games.player IN" in statement:
+            batched_game_fetches += 1
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _count_select)
+    try:
+        created = await create_nba_matchup_candidates(factory, snapshot, min_edge=0.03)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _count_select)
+
+    assert batched_game_fetches == 1
+    assert created == 2
+
+    async with factory() as session:
+        candidates = (await session.execute(select(SteamCandidate))).scalars().all()
+    by_player = {c.selection.rsplit(" ", 2)[0]: c for c in candidates}
+    assert "last_10 10-0" in by_player["LeBron James"].rationale
+    assert "last_10 0-10" in by_player["Jayson Tatum"].rationale
+    await engine.dispose()

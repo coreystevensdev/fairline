@@ -7,6 +7,7 @@ stores both the raw game snapshots and derived fair lines on the state.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 
@@ -59,9 +60,28 @@ async def odds_agent(state: FairlineState, client: httpx.AsyncClient) -> dict:
     logger.info("odds_agent: fetching %s odds for date=%s", sport, state.get("target_date"))
     try:
         games = await fetch_odds(client, sport)
-    except Exception as exc:
-        logger.error("odds_agent: fetch failed: %s", exc)
-        return {"error": f"Odds fetch failed: {exc}", "games": [], "fair_lines": []}
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status in (401, 403):
+            kind = "authentication/authorization error"
+        elif status == 429:
+            kind = "quota exceeded"
+        else:
+            kind = f"HTTP {status} error"
+        logger.error("odds_agent: %s: %s", kind, exc)
+        return {"error": f"Odds fetch failed: {kind}: {exc}", "games": [], "fair_lines": []}
+    except httpx.TimeoutException as exc:
+        logger.error("odds_agent: request timed out: %s", exc)
+        return {"error": f"Odds fetch failed: request timed out: {exc}", "games": [], "fair_lines": []}
+    except httpx.RequestError as exc:
+        logger.error("odds_agent: network error: %s", exc)
+        return {"error": f"Odds fetch failed: network error: {exc}", "games": [], "fair_lines": []}
+    except json.JSONDecodeError as exc:
+        logger.error("odds_agent: malformed response body: %s", exc)
+        return {"error": f"Odds fetch failed: malformed response body: {exc}", "games": [], "fair_lines": []}
+    except (RuntimeError, ValueError) as exc:
+        logger.error("odds_agent: configuration error: %s", exc)
+        return {"error": f"Odds fetch failed: configuration error: {exc}", "games": [], "fair_lines": []}
 
     fair_lines: list[FairLine] = []
     for game in games:

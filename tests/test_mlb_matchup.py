@@ -295,3 +295,91 @@ async def test_create_mlb_matchup_candidates_survives_probable_pitcher_fetch_fai
     async with factory() as session:
         cand = (await session.execute(select(SteamCandidate))).scalars().one()
     assert "vs_pitcher" not in (cand.angles or "")
+
+
+@pytest.mark.asyncio
+async def test_create_mlb_matchup_candidates_batches_the_game_fetch_across_players():
+    """Two batters on the same slate must each keep their own game history --
+    a batched IN-list fetch that mis-groups rows by player would let one
+    batter's splits leak into the other's candidate."""
+    from sqlalchemy import event
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base, SteamCandidate
+    from fairline.mlb_matchup import create_mlb_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        for i in range(10):
+            session.add(_game(
+                hits=2, team="New York Yankees", opponent="Boston Red Sox",
+                date=datetime(2025, 5, 1 + i, tzinfo=timezone.utc),
+            ))
+            session.add(MlbPlayerGame(
+                season=2025, game_date=datetime(2025, 5, 1 + i, tzinfo=timezone.utc),
+                player="Juan Soto", team="New York Yankees", opponent="Boston Red Sox",
+                opposing_pitcher="Brayan Bello", is_home=True, day_night="night",
+                at_bats=4, hits=0, home_runs=0, rbis=0, total_bases=0, strikeouts=0, walks=0,
+            ))
+        await session.commit()
+
+    async def fake_fetch_probable_pitchers(client, date):
+        return []
+
+    import fairline.mlb_matchup as mlb_matchup_module
+
+    original_fetch = mlb_matchup_module.fetch_probable_pitchers
+    mlb_matchup_module.fetch_probable_pitchers = fake_fetch_probable_pitchers
+    try:
+        def _o(side, price, player):
+            return Outcome(name=side, price=price, point=0.5, description=player)
+
+        snapshot = GameSnapshot(
+            game_id="evt-multi", sport="baseball_mlb",
+            home_team="New York Yankees", away_team="Boston Red Sox",
+            commence_time=datetime(2026, 7, 19, 17, 5, tzinfo=timezone.utc),
+            bookmakers=[
+                BookmakerOdds(key="pinnacle", title="P", markets=[
+                    MarketOdds(key="batter_hits", outcomes=[
+                        _o("Over", -110, "Aaron Judge"), _o("Under", -110, "Aaron Judge"),
+                        _o("Over", -110, "Juan Soto"), _o("Under", -110, "Juan Soto"),
+                    ])
+                ]),
+                BookmakerOdds(key="draftkings", title="DK", markets=[
+                    MarketOdds(key="batter_hits", outcomes=[
+                        _o("Over", 120, "Aaron Judge"), _o("Under", -150, "Aaron Judge"),
+                        _o("Under", 120, "Juan Soto"), _o("Over", -150, "Juan Soto"),
+                    ])
+                ]),
+            ],
+        )
+
+        batched_game_fetches = 0
+
+        def _count_select(conn, cursor, statement, *args, **kwargs):
+            nonlocal batched_game_fetches
+            if "mlb_player_games.player IN" in statement:
+                batched_game_fetches += 1
+
+        event.listen(engine.sync_engine, "before_cursor_execute", _count_select)
+        try:
+            created = await create_mlb_matchup_candidates(factory, snapshot, min_edge=0.03)
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", _count_select)
+
+        assert batched_game_fetches == 1
+        assert created == 2
+
+        async with factory() as session:
+            candidates = (await session.execute(select(SteamCandidate))).scalars().all()
+        by_player = {c.selection.rsplit(" ", 2)[0]: c for c in candidates}
+        assert "last_10 10-0" in by_player["Aaron Judge"].rationale
+        assert "last_10 0-10" in by_player["Juan Soto"].rationale
+    finally:
+        mlb_matchup_module.fetch_probable_pitchers = original_fetch
+    await engine.dispose()

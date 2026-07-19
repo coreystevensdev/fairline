@@ -77,3 +77,77 @@ def test_describe_nhl_splits_lists_only_present_splits():
     text = describe_nhl_splits(splits, "Over", 0.5)
     assert "home 3-2 over 0.5" in text
     assert "away" not in text
+
+
+@pytest.mark.asyncio
+async def test_create_nhl_matchup_candidates_batches_the_game_fetch_across_players():
+    """Two skaters on the same slate must each keep their own game history in
+    the batched IN-list fetch -- a grouping bug would let one skater's splits
+    leak into the other's candidate."""
+    from sqlalchemy import event, select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base, NhlPlayerGame, SteamCandidate
+    from fairline.nhl_matchup import create_nhl_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        for day in range(10):
+            session.add(_game(points=3, day=day))  # Connor McDavid: ten games well over 0.5
+            session.add(NhlPlayerGame(
+                season=2025, game_date=BASE_DATE + timedelta(days=day), player="Auston Matthews",
+                team="Edmonton Oilers", opponent="Calgary Flames", opposing_goalie="Dustin Wolf",
+                is_home=True, rest_days=2,
+                goals=0, assists=0, points=0, shots_on_goal=1,  # never clears 0.5
+            ))
+        await session.commit()
+
+    def _o(side, price, player):
+        return Outcome(name=side, price=price, point=0.5, description=player)
+
+    snapshot = GameSnapshot(
+        game_id="evt-multi", sport="icehockey_nhl",
+        home_team="Edmonton Oilers", away_team="Calgary Flames", commence_time=BASE_DATE,
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="Pinnacle", markets=[
+                MarketOdds(key="player_points", outcomes=[
+                    _o("Over", -110, "Connor McDavid"), _o("Under", -110, "Connor McDavid"),
+                    _o("Over", -110, "Auston Matthews"), _o("Under", -110, "Auston Matthews"),
+                ])
+            ]),
+            BookmakerOdds(key="fanduel", title="FanDuel", markets=[
+                MarketOdds(key="player_points", outcomes=[
+                    _o("Over", 150, "Connor McDavid"), _o("Under", -200, "Connor McDavid"),
+                    _o("Under", 150, "Auston Matthews"), _o("Over", -200, "Auston Matthews"),
+                ])
+            ]),
+        ],
+    )
+
+    batched_game_fetches = 0
+
+    def _count_select(conn, cursor, statement, *args, **kwargs):
+        nonlocal batched_game_fetches
+        if "nhl_player_games.player IN" in statement:
+            batched_game_fetches += 1
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _count_select)
+    try:
+        created = await create_nhl_matchup_candidates(factory, snapshot, min_edge=0.03)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _count_select)
+
+    assert batched_game_fetches == 1
+    assert created == 2
+
+    async with factory() as session:
+        candidates = (await session.execute(select(SteamCandidate))).scalars().all()
+    by_player = {c.selection.rsplit(" ", 2)[0]: c for c in candidates}
+    assert "last_10 10-0" in by_player["Connor McDavid"].rationale
+    assert "last_10 0-10" in by_player["Auston Matthews"].rationale
+    await engine.dispose()

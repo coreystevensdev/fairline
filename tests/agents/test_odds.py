@@ -6,11 +6,13 @@ These are pure (no network, no graph) so they run without API keys.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
+import httpx
 import pytest
 
-from fairline.agents.odds import best_sharp_book, _derive_fair_line
+from fairline.agents.odds import best_sharp_book, odds_agent, _derive_fair_line
 from fairline.state import (
     BookmakerOdds,
     GameSnapshot,
@@ -104,3 +106,90 @@ class TestDeriveFairLine:
         assert fl.market == "spreads"
         assert fl.source_book == "pinnacle"
         assert fl.outcomes == ["Team A", "Team B"]
+
+
+class TestOddsAgentErrorClassification:
+    """odds_agent must route to the same short-circuit on any odds-fetch
+    failure, but the error string should name which failure class occurred
+    instead of flattening auth, quota, network, and parse failures into one
+    generic message."""
+
+    @staticmethod
+    def _http_status_error(status: int) -> httpx.HTTPStatusError:
+        request = httpx.Request("GET", "https://api.the-odds-api.com/v4/sports/x/odds/")
+        response = httpx.Response(status, request=request)
+        return httpx.HTTPStatusError(f"{status}", request=request, response=response)
+
+    @pytest.mark.asyncio
+    async def test_auth_error_is_named(self, monkeypatch):
+        async def fake_fetch_odds(client, sport):
+            raise self._http_status_error(401)
+
+        monkeypatch.setattr("fairline.agents.odds.fetch_odds", fake_fetch_odds)
+        result = await odds_agent({"sport": "americanfootball_nfl"}, client=None)
+        assert "auth" in result["error"].lower()
+        assert result["games"] == []
+        assert result["fair_lines"] == []
+
+    @pytest.mark.asyncio
+    async def test_quota_error_is_named(self, monkeypatch):
+        async def fake_fetch_odds(client, sport):
+            raise self._http_status_error(429)
+
+        monkeypatch.setattr("fairline.agents.odds.fetch_odds", fake_fetch_odds)
+        result = await odds_agent({"sport": "americanfootball_nfl"}, client=None)
+        assert "quota" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_network_error_is_named(self, monkeypatch):
+        async def fake_fetch_odds(client, sport):
+            raise httpx.ConnectError("connection refused")
+
+        monkeypatch.setattr("fairline.agents.odds.fetch_odds", fake_fetch_odds)
+        result = await odds_agent({"sport": "americanfootball_nfl"}, client=None)
+        assert "network" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_timeout_is_named(self, monkeypatch):
+        async def fake_fetch_odds(client, sport):
+            raise httpx.ReadTimeout("timed out")
+
+        monkeypatch.setattr("fairline.agents.odds.fetch_odds", fake_fetch_odds)
+        result = await odds_agent({"sport": "americanfootball_nfl"}, client=None)
+        assert "timed out" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_parse_error_is_named(self, monkeypatch):
+        async def fake_fetch_odds(client, sport):
+            raise json.JSONDecodeError("Expecting value", "not json", 0)
+
+        monkeypatch.setattr("fairline.agents.odds.fetch_odds", fake_fetch_odds)
+        result = await odds_agent({"sport": "americanfootball_nfl"}, client=None)
+        assert "malformed" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_missing_api_key_is_named_as_configuration(self, monkeypatch):
+        async def fake_fetch_odds(client, sport):
+            raise RuntimeError("ODDS_API_KEY is not set")
+
+        monkeypatch.setattr("fairline.agents.odds.fetch_odds", fake_fetch_odds)
+        result = await odds_agent({"sport": "americanfootball_nfl"}, client=None)
+        assert "configuration" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_every_failure_class_still_short_circuits_with_an_error(self, monkeypatch):
+        for exc in (
+            self._http_status_error(500),
+            httpx.ConnectError("boom"),
+            json.JSONDecodeError("bad", "doc", 0),
+            RuntimeError("no key"),
+            ValueError("unsupported sport"),
+        ):
+            async def fake_fetch_odds(client, sport, _exc=exc):
+                raise _exc
+
+            monkeypatch.setattr("fairline.agents.odds.fetch_odds", fake_fetch_odds)
+            result = await odds_agent({"sport": "americanfootball_nfl"}, client=None)
+            assert result["error"]
+            assert result["games"] == []
+            assert result["fair_lines"] == []

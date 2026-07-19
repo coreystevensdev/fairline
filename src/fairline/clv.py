@@ -263,6 +263,8 @@ async def agent_report(session_factory) -> dict:
     Every agent's picks flow through the same settlement and grading, so the
     comparison is apples to apples; source is the byline, CLV is the grade.
     """
+    # In-memory aggregation; fine at portfolio scale, would need a SQL GROUP BY
+    # well before production pick volume.
     async with session_factory() as session:
         rows = (
             (await session.execute(select(Pick).where(Pick.clv.is_not(None))))

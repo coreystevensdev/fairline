@@ -154,25 +154,56 @@ async def create_mlb_matchup_candidates(session_factory, snapshot, min_edge: flo
     except httpx.HTTPError as exc:
         logger.warning("mlb_matchup: probable-pitcher fetch failed, omitting vs_pitcher: %s", exc)
         probable_games = []
+
+    retail_pairs = {
+        bm.key: _paired_outcomes(snapshot, bm.key)
+        for bm in snapshot.bookmakers
+        if bm.key in RETAIL_BOOKS
+    }
+    players_needed = {
+        player
+        for pairs in retail_pairs.values()
+        for (market, player, point) in pairs
+        if (market, player, point) in fair_by_key and market in MLB_PROP_STAT_COLUMNS
+    }
+
     created = 0
     async with session_factory() as session:
-        for bm in snapshot.bookmakers:
-            if bm.key not in RETAIL_BOOKS:
-                continue
-            for (market, player, point), pair in _paired_outcomes(snapshot, bm.key).items():
+        games_by_player: dict[str, list[MlbPlayerGame]] = {}
+        if players_needed:
+            rows = (
+                (
+                    await session.execute(
+                        select(MlbPlayerGame).where(MlbPlayerGame.player.in_(players_needed))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for row in rows:
+                games_by_player.setdefault(row.player, []).append(row)
+
+        pending_selections = {
+            (row.market, row.selection, row.book)
+            for row in (
+                await session.execute(
+                    select(
+                        SteamCandidate.market, SteamCandidate.selection, SteamCandidate.book
+                    ).where(
+                        SteamCandidate.game_id == snapshot.game_id,
+                        SteamCandidate.status == "pending",
+                    )
+                )
+            ).all()
+        }
+
+        for bm_key, pairs in retail_pairs.items():
+            for (market, player, point), pair in pairs.items():
                 over_fair = fair_by_key.get((market, player, point))
                 stat = MLB_PROP_STAT_COLUMNS.get(market)
                 if over_fair is None or stat is None:
                     continue
-                games = (
-                    (
-                        await session.execute(
-                            select(MlbPlayerGame).where(MlbPlayerGame.player == player)
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
+                games = games_by_player.get(player)
                 if not games:
                     continue
                 own_team = _player_current_team(games)
@@ -188,31 +219,24 @@ async def create_mlb_matchup_candidates(session_factory, snapshot, min_edge: flo
                         probable_games, snapshot.home_team, snapshot.away_team,
                         snapshot.commence_time, opposing_side,
                     )
+                # Splits don't depend on side, so compute them once per
+                # batter/market instead of re-sorting the same games list twice.
+                splits = compute_mlb_prop_splits(
+                    games, stat, point,
+                    opposing_pitcher=opposing_pitcher, upcoming_park_bucket=upcoming_park_bucket,
+                )
+                raw_over_prob = combine_splits(splits, base_rate=over_fair, market_fair=over_fair)
                 for side in ("Over", "Under"):
                     market_fair = over_fair if side == "Over" else 1 - over_fair
-                    prob, splits = mlb_matchup_probability(
-                        games, stat, point, side, market_fair,
-                        opposing_pitcher=opposing_pitcher,
-                        upcoming_park_bucket=upcoming_park_bucket,
-                    )
+                    prob = raw_over_prob if side == "Over" else 1 - raw_over_prob
                     implied = american_to_prob(pair[side].price)
                     edge = prob - implied
                     if edge < min_edge:
                         continue
                     selection = f"{player} {side} {point:g}"
-                    already = (
-                        await session.execute(
-                            select(SteamCandidate.id).where(
-                                SteamCandidate.game_id == snapshot.game_id,
-                                SteamCandidate.market == market,
-                                SteamCandidate.selection == selection,
-                                SteamCandidate.book == bm.key,
-                                SteamCandidate.status == "pending",
-                            )
-                        )
-                    ).scalar()
-                    if already:
+                    if (market, selection, bm_key) in pending_selections:
                         continue
+                    pending_selections.add((market, selection, bm_key))
                     price = pair[side].price
                     win_amount = price / 100 if price > 0 else 100 / abs(price)
                     session.add(
@@ -225,7 +249,7 @@ async def create_mlb_matchup_candidates(session_factory, snapshot, min_edge: flo
                             commence_time=snapshot.commence_time,
                             market=market,
                             selection=selection,
-                            book=bm.key,
+                            book=bm_key,
                             price=price,
                             sharp_probability=prob,
                             implied_probability=implied,
