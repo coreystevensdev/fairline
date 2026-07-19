@@ -437,4 +437,4 @@ python -m eval --out eval/report.json
 27. **Defense-vs-position uses broad position buckets (Guard/Forward/Center), not the granular PG/SG/SF/PF/C breakdown**; nba_api's own position data doesn't expose that level of detail.
 28. **Position data comes from a season's current roster snapshot (`CommonTeamRoster`), not a per-game record.** A player who changed teams or position designation mid-season may have a stale bucket until the next backfill.
 29. **A player-name mismatch between the box-score feed and the roster feed leaves that player's position unresolved (`None`).** The `position_matchup` split is silently omitted for their picks rather than guessed.
-27. **Rest days are derived from consecutive game dates, not a field nba_api provides directly.**
+30. **Rest days are derived from consecutive game dates, not a field nba_api provides directly.**
