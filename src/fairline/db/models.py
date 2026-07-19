@@ -238,3 +238,28 @@ class NhlPlayerGame(Base):
     assists: Mapped[int | None] = mapped_column(Integer)
     points: Mapped[int | None] = mapped_column(Integer)
     shots_on_goal: Mapped[int | None] = mapped_column(Integer)
+
+
+class NbaPlayerGame(Base):
+    """One NBA player's stat line for one game, with the game context the
+    situational splits need (home/away, rest days). No opposing-defender
+    field exists here: no verified per-game defender-matchup data source
+    was found for NBA (unlike MLB's opposing_pitcher or NHL's
+    opposing_goalie), so this table doesn't carry a column for it."""
+
+    __tablename__ = "nba_player_games"
+    __table_args__ = (Index("ix_nba_player_games_player", "player", "season"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    game_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    player: Mapped[str] = mapped_column(String(100), nullable=False)
+    team: Mapped[str] = mapped_column(String(100), nullable=False)
+    opponent: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_home: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # days since this player's team's previous game; NULL for the first game in a backfilled range
+    rest_days: Mapped[int | None] = mapped_column(Integer)
+    points: Mapped[int | None] = mapped_column(Integer)
+    rebounds: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    three_pointers_made: Mapped[int | None] = mapped_column(Integer)
