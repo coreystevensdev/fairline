@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![342 tests](https://img.shields.io/badge/tests-342-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![352 tests](https://img.shields.io/badge/tests-352-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
@@ -187,6 +187,8 @@ python -m fairline matchup --sport baseball_mlb --markets batter_hits,batter_hom
 ```
 
 For each batter prop, `compute_mlb_prop_splits` computes last-5, last-10, season, day, night, home, away, and park-factor hit rates against the line, the same shrinkage-toward-fair math as the NFL matchup agent, combined into a probability that flags a candidate when it beats the retail price. The vs-specific-pitcher split is computed too, but only surfaces when a batter has faced that pitcher at least 10 times (`MIN_VS_PITCHER_SAMPLE`); below that floor the split is left out of the result entirely rather than shown on a handful of at-bats. Candidates land in the same review queue as NFL matchup and steam picks, tagged `source=mlb_matchup`.
+
+`vs_pitcher` is now live-wired for upcoming games, not just backtesting. `create_mlb_matchup_candidates` resolves the probable starter for a batter's team from MLB's own free official Stats API (`statsapi.mlb.com`), no scraping, no key required. The same graceful-degradation guard used on the NBA and NFL defense-vs-position splits applies here: an unresolved batter team, or a starter the schedule API hasn't announced yet, omits the split rather than guessing at an opponent. NHL's `vs_goalie` stays unwired by contrast; no equivalent free official pregame source for confirmed starting goalies turned up when `api-web.nhle.com`'s schedule, landing, and right-rail endpoints were checked live during planning, and the realistic sources are third-party sites that require scraping, which this codebase doesn't do.
 
 ### NHL skater props
 
@@ -422,14 +424,14 @@ python -m eval --out eval/report.json
 10. **Player-level stats are fetched for NFL and MLB only.** NBA's and NHL's player endpoints require a player-ID roster lookup fairline doesn't have yet.
 11. **Player-level stats land in state but nothing consumes them for prop-market picks yet.** fairline's automated pipeline only bets moneyline/spread/total today.
 12. **MLB batter props only.** Pitcher-strikeout props need a separate pitcher-grouped aggregation not built yet.
-13. **The vs-specific-pitcher split is computed and tested but not wired into live picking.** It needs a probable-starting-pitcher source this codebase doesn't have, so `create_mlb_matchup_candidates` always passes `opposing_pitcher=None` today.
+13. **The vs-specific-pitcher split is now wired into live picking via MLB's official Stats API, but probable starters are frequently unannounced more than a day or two out, and can change after being announced (a scratched start).** `vs_pitcher` reflects whatever the schedule API has listed at the moment a candidate is generated, which may differ from the pitcher who actually takes the mound.
 14. **Park factors are a static table from FanGraphs' 2025 season data**, refreshed by hand once a year, not a live feed.
 15. **pybaseball has no documented API contract.** It scrapes Baseball Reference, Baseball Savant, and FanGraphs directly and can break if those sites change their HTML structure.
 16. **Teammate-out correlated splits are not implemented.** They need a lineups/roster source this codebase doesn't have.
 17. **The weather split is historical only** (how has this player performed in past bad-weather games), not a forecast for the specific upcoming game; wiring a live forecast into the CLI matchup path is future work.
 18. **Primetime detection uses a fixed Sunday-kickoff-hour heuristic** (19:00 or later) plus Monday/Thursday. A schedule change outside this heuristic, a Saturday game, won't get flagged as primetime.
 19. **"Bad weather" is a fixed wind/temperature heuristic** (wind >= 15 mph or temp <= 32F), not a graded scale. Games with no recorded temp or wind, typically domes, are excluded from the weather split rather than assumed good weather.
-20. **The vs-specific-goalie split is computed and tested but not wired into live picking.** It needs the opposing starting goalie for an upcoming game, which isn't confirmed until pre-game, the same limitation MLB's vs-pitcher split has.
+20. **The vs-specific-goalie split is computed and tested but not wired into live picking.** It needs the opposing starting goalie for an upcoming game, which isn't confirmed until pre-game, the same limitation MLB's vs-pitcher split had before its Stats API wiring.
 21. **No day/night split exists for NHL.** Every game is played indoors, so the dimension carries no information.
 22. **Rest days are derived from consecutive schedule dates, not a field the NHL's API provides directly.** A team's first backfilled game in a date range has no rest-days value.
 23. **The NHL's official API has no published OpenAPI spec or documented stability guarantee.** Every field this integration reads was verified against a real live response during development, not assumed from third-party documentation.
