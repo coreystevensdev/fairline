@@ -30,7 +30,10 @@ async def session_factory():
     await engine.dispose()
 
 
-def _pg(week: int, passing: float, opponent: str = "Las Vegas Raiders", season: int = 2025) -> PlayerGame:
+def _pg(
+    week: int, passing: float, opponent: str = "Las Vegas Raiders", season: int = 2025,
+    position: str = "QB",
+) -> PlayerGame:
     return PlayerGame(
         sport="americanfootball_nfl",
         season=season,
@@ -39,6 +42,7 @@ def _pg(week: int, passing: float, opponent: str = "Las Vegas Raiders", season: 
         player="Patrick Mahomes",
         team="Kansas City Chiefs",
         opponent=opponent,
+        position=position,
         passing_yards=passing,
     )
 
@@ -473,6 +477,100 @@ class TestNewSplitDimensions:
         ]
         splits = compute_prop_splits(games, "passing_yards", 250.0, upcoming_surface="grass")
         assert splits["surface"] == (1, 1)
+
+
+class TestPositionMatchupSplit:
+    def test_position_matchup_included_when_provided(self):
+        games = [_pg(1, 300.0)]
+        splits = compute_prop_splits(games, "passing_yards", 275.5, position_matchup=(6, 10))
+        assert splits["position_matchup"] == (6, 10)
+
+    def test_position_matchup_absent_when_not_provided(self):
+        games = [_pg(1, 300.0)]
+        splits = compute_prop_splits(games, "passing_yards", 275.5)
+        assert "position_matchup" not in splits
+
+
+async def test_opponent_position_rate_queries_across_players(session_factory):
+    from fairline.matchup import _opponent_position_rate
+
+    async with session_factory() as session:
+        session.add_all([
+            _pg(1, 300.0),  # Patrick Mahomes, QB, vs Las Vegas Raiders (default opponent)
+            PlayerGame(
+                sport="americanfootball_nfl", season=2025, week=2,
+                game_date=NOW - timedelta(days=7 * 18),
+                player="Josh Allen", team="Buffalo Bills", opponent="Las Vegas Raiders",
+                position="QB", passing_yards=280.0,
+            ),
+            PlayerGame(
+                sport="americanfootball_nfl", season=2025, week=3,
+                game_date=NOW - timedelta(days=7 * 17),
+                player="Derrick Henry", team="Baltimore Ravens", opponent="Las Vegas Raiders",
+                position="RB", rushing_yards=150.0,
+            ),
+        ])
+        await session.commit()
+
+    async with session_factory() as session:
+        rate = await _opponent_position_rate(
+            session, "americanfootball_nfl", "Las Vegas Raiders", "QB", "passing_yards", 275.5
+        )
+
+    # Two QBs (Mahomes, Allen) faced the Raiders, both over 275.5. Henry's row
+    # is irrelevant: he's an RB, not a QB.
+    assert rate == (2, 2)
+
+
+async def test_opponent_position_rate_returns_none_with_no_matching_games(session_factory):
+    from fairline.matchup import _opponent_position_rate
+
+    async with session_factory() as session:
+        rate = await _opponent_position_rate(
+            session, "americanfootball_nfl", "Las Vegas Raiders", "TE", "receiving_yards", 40.5
+        )
+    assert rate is None
+
+
+def test_player_current_team_resolves_most_recent_not_fetch_order():
+    from fairline.matchup import _player_current_team
+
+    old_team_game = _pg(1, 250.0, season=2024)
+    new_team_game = PlayerGame(
+        sport="americanfootball_nfl", season=2025, week=5,
+        game_date=NOW, player="Patrick Mahomes", team="New York Jets",
+        opponent="Buffalo Bills", position="QB", passing_yards=200.0,
+    )
+    assert _player_current_team([old_team_game, new_team_game]) == "New York Jets"
+    # Order in the fetched list must not matter.
+    assert _player_current_team([new_team_game, old_team_game]) == "New York Jets"
+
+
+async def test_player_position_resolves_most_recent(session_factory):
+    from fairline.matchup import _player_position
+
+    async with session_factory() as session:
+        session.add_all([
+            _pg(1, 250.0, season=2024),
+            PlayerGame(
+                sport="americanfootball_nfl", season=2025, week=5,
+                game_date=NOW, player="Patrick Mahomes", team="Kansas City Chiefs",
+                opponent="Buffalo Bills", position="QB", passing_yards=200.0,
+            ),
+        ])
+        await session.commit()
+
+    async with session_factory() as session:
+        position = await _player_position(session, "americanfootball_nfl", "Patrick Mahomes")
+    assert position == "QB"
+
+
+async def test_player_position_returns_none_when_unresolved(session_factory):
+    from fairline.matchup import _player_position
+
+    async with session_factory() as session:
+        position = await _player_position(session, "americanfootball_nfl", "Nobody")
+    assert position is None
 
 
 async def test_team_home_surface_reads_most_recent_home_game():

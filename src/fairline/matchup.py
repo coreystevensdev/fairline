@@ -103,7 +103,7 @@ def shrunk_probability(hits: int, attempts: int, base_rate: float, k: int = SHRI
 
 def compute_prop_splits(
     games: list[PlayerGame], stat: str, line: float, opponent: str | None = None,
-    upcoming_surface: str | None = None,
+    upcoming_surface: str | None = None, position_matchup: tuple[int, int] | None = None,
 ) -> dict[str, tuple[int, int]]:
     """Pre-registered splits only; searching for the best-looking slice is the
     multiple-comparisons trap this module exists to avoid."""
@@ -129,7 +129,63 @@ def compute_prop_splits(
     }
     if upcoming_surface:
         splits["surface"] = rate([g for g in played if g.surface == upcoming_surface])
+    if position_matchup is not None:
+        splits["position_matchup"] = position_matchup
     return splits
+
+
+def _player_current_team(games: list[PlayerGame]) -> str:
+    """The team from the most recent game in an already-fetched games list,
+    ordered by (season, week) -- a fetch with no ORDER BY returns rows in an
+    unspecified order, so trusting games[0] risks a stale team for a player
+    who changed teams mid-season."""
+    latest = max(games, key=lambda g: (g.season, g.week))
+    return latest.team
+
+
+async def _player_position(session, sport: str, player: str) -> str | None:
+    """The player's own most-recently-recorded position, or None if unresolved."""
+    row = (
+        await session.execute(
+            select(PlayerGame.position)
+            .where(
+                PlayerGame.sport == sport,
+                PlayerGame.player == player,
+                PlayerGame.position.is_not(None),
+            )
+            .order_by(PlayerGame.season.desc(), PlayerGame.week.desc())
+            .limit(1)
+        )
+    ).scalar()
+    return row
+
+
+async def _opponent_position_rate(
+    session, sport: str, opponent: str, position: str, stat: str, line: float
+) -> tuple[int, int] | None:
+    """How every player at `position` has fared against `opponent` on `stat`
+    vs `line`, pooled across all players who have faced them -- not just one
+    player's own history. Returns None when no qualifying games exist, so the
+    caller can omit the split rather than showing a false (0, 0)."""
+    column = getattr(PlayerGame, stat)
+    games = (
+        (
+            await session.execute(
+                select(PlayerGame).where(
+                    PlayerGame.sport == sport,
+                    PlayerGame.opponent == opponent,
+                    PlayerGame.position == position,
+                    column.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not games:
+        return None
+    hits = sum(1 for g in games if getattr(g, stat) > line)
+    return hits, len(games)
 
 
 def combine_splits(
@@ -157,10 +213,12 @@ def combine_splits(
 
 def matchup_probability(
     games: list[PlayerGame], stat: str, line: float, side: str, market_fair: float,
-    upcoming_surface: str | None = None,
+    upcoming_surface: str | None = None, position_matchup: tuple[int, int] | None = None,
 ) -> tuple[float, dict[str, tuple[int, int]]]:
     """Probability the side hits, with the splits that produced it."""
-    splits = compute_prop_splits(games, stat, line, upcoming_surface=upcoming_surface)
+    splits = compute_prop_splits(
+        games, stat, line, upcoming_surface=upcoming_surface, position_matchup=position_matchup
+    )
     over_fair = market_fair if side == "Over" else 1 - market_fair
     over_prob = combine_splits(splits, base_rate=over_fair, market_fair=over_fair)
     return (over_prob if side == "Over" else 1 - over_prob), splits
