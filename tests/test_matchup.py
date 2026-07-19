@@ -418,6 +418,14 @@ class TestParsePlayerStatsWithContext:
         assert rows[0].is_home is None
         assert rows[0].surface is None
 
+    def test_position_is_stored_on_the_row(self):
+        csv_text = (
+            "season,week,player_display_name,team,opponent_team,position,passing_yards\n"
+            "2025,10,Patrick Mahomes,KC,LV,QB,300.0\n"
+        )
+        rows = parse_player_stats(csv_text)
+        assert rows[0].position == "QB"
+
 
 class TestNewSplitDimensions:
     def _game(self, is_home=True, is_primetime=False, bad_weather=False, surface="grass",

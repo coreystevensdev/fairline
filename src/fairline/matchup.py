@@ -223,6 +223,7 @@ def parse_player_stats(
                 surface=context.get("surface"),
                 is_primetime=context.get("is_primetime"),
                 bad_weather=context.get("bad_weather"),
+                position=row.get("position"),
                 **stats,
             )
         )
