@@ -146,10 +146,14 @@ async def create_mlb_matchup_candidates(session_factory, snapshot, min_edge: flo
         return 0
 
     upcoming_park_bucket = park_bucket(snapshot.home_team)
-    async with httpx.AsyncClient() as http_client:
-        probable_games = await fetch_probable_pitchers(
-            http_client, snapshot.commence_time.date().isoformat()
-        )
+    try:
+        async with httpx.AsyncClient() as http_client:
+            probable_games = await fetch_probable_pitchers(
+                http_client, snapshot.commence_time.date().isoformat()
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("mlb_matchup: probable-pitcher fetch failed, omitting vs_pitcher: %s", exc)
+        probable_games = []
     created = 0
     async with session_factory() as session:
         for bm in snapshot.bookmakers:

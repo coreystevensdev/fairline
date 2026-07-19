@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -219,6 +220,65 @@ async def test_create_mlb_matchup_candidates_omits_vs_pitcher_when_own_team_matc
         game_id="evt-1", sport="baseball_mlb",
         home_team="Miami Marlins", away_team="Milwaukee Brewers",
         commence_time=datetime(2026, 7, 19, 18, 10, tzinfo=timezone.utc),
+        bookmakers=[
+            BookmakerOdds(key="pinnacle", title="P", markets=[
+                MarketOdds(key="batter_hits", outcomes=[_o("Over", -110), _o("Under", -110)])
+            ]),
+            BookmakerOdds(key="draftkings", title="DK", markets=[
+                MarketOdds(key="batter_hits", outcomes=[_o("Over", 120), _o("Under", -150)])
+            ]),
+        ],
+    )
+
+    created = await create_mlb_matchup_candidates(factory, snapshot, min_edge=0.03)
+    assert created == 1
+
+    async with factory() as session:
+        cand = (await session.execute(select(SteamCandidate))).scalars().one()
+    assert "vs_pitcher" not in (cand.angles or "")
+
+
+@pytest.mark.asyncio
+async def test_create_mlb_matchup_candidates_survives_probable_pitcher_fetch_failure(monkeypatch):
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from fairline.db.models import Base, SteamCandidate
+    from fairline.mlb_matchup import create_mlb_matchup_candidates
+    from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        # Would otherwise clear MIN_VS_PITCHER_SAMPLE and produce vs_pitcher --
+        # the fetch failure below has to suppress it regardless.
+        for i in range(10):
+            session.add(_game(
+                hits=1, team="New York Yankees", opponent="Boston Red Sox",
+                opposing_pitcher="Brayan Bello",
+                date=datetime(2025, 5, 1 + i, tzinfo=timezone.utc),
+            ))
+        await session.commit()
+
+    async def fake_fetch_probable_pitchers(client, date):
+        raise httpx.HTTPStatusError(
+            "500 Server Error", request=httpx.Request("GET", "https://statsapi.mlb.com"),
+            response=httpx.Response(500),
+        )
+
+    monkeypatch.setattr(
+        "fairline.mlb_matchup.fetch_probable_pitchers", fake_fetch_probable_pitchers
+    )
+
+    def _o(side, price):
+        return Outcome(name=side, price=price, point=0.5, description="Aaron Judge")
+
+    snapshot = GameSnapshot(
+        game_id="evt-1", sport="baseball_mlb",
+        home_team="New York Yankees", away_team="Boston Red Sox",
+        commence_time=datetime(2026, 7, 19, 17, 5, tzinfo=timezone.utc),
         bookmakers=[
             BookmakerOdds(key="pinnacle", title="P", markets=[
                 MarketOdds(key="batter_hits", outcomes=[_o("Over", -110), _o("Under", -110)])
