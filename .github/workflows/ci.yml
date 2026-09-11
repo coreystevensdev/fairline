@@ -18,3 +18,15 @@ jobs:
           ODDS_API_KEY: test-key
           ANTHROPIC_API_KEY: test-key
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+
+      - name: README test count matches what pytest collects
+        run: |
+          n=$(pytest --collect-only -q | grep -oE '^[0-9]+ tests? collected' | grep -oE '^[0-9]+')
+          [ -n "$n" ] || { echo "could not parse a count out of pytest"; exit 1; }
+          grep -q "tests-$n-brightgreen" README.md || {
+            echo "pytest collects $n, README badge does not say so. Update it."; exit 1; }
+          echo "README agrees with pytest: $n"
+        env:
+          ODDS_API_KEY: test-key
+          ANTHROPIC_API_KEY: test-key
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
