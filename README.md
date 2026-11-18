@@ -4,7 +4,11 @@
 [![364 tests](https://img.shields.io/badge/tests-364-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
-Agentic betting research service for NFL, NBA, MLB, and NHL that finds closing line value before the market closes. Pulls Pinnacle sharp-book lines via The Odds API, strips vig to no-vig fair probabilities, then uses Claude to surface picks where retail prices measurably beat the sharp-market consensus. LangGraph HITL checkpoint requires user approval before any bet slip is prepared. Every pick carries its producing agent as a byline, and each agent's record is graded by CLV, a harder standard than win rate.
+Finds sports bets that are priced better than the professional market thinks they should be, and makes a human approve every one before it goes anywhere. NFL, NBA, MLB, NHL.
+
+Every bookmaker builds a margin into its odds, called vig. Strip the vig out of a sharp book's line and you get that market's honest estimate of what will happen. Fairline does that to Pinnacle's lines via The Odds API, then has Claude surface the retail prices that beat it. A LangGraph `interrupt()` pauses the pipeline for approval before any bet slip is prepared, so nothing is ever placed on its own.
+
+Each pick is signed by the agent that produced it, and those agents are graded on closing line value: did the price beat where the market finished, rather than did the bet win. That is the harder standard, and the one that separates edge from luck.
 
 ## Problem
 
