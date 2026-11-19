@@ -11,11 +11,11 @@
   <tbody>
     {% for source, s in report.items() %}
     <tr>
-      <td><span class="chip {{ source }}">{{ source }}</span></td>
-      <td class="num">{{ s.record }}</td>
-      <td class="num {{ 'pos' if s.avg_clv > 0 else 'neg' if s.avg_clv < 0 else 'push' }}">{{ "%+.4f"|format(s.avg_clv) }}</td>
-      <td class="num {{ 'pos' if s.profit_units > 0 else 'neg' if s.profit_units < 0 else 'push' }}">{{ "%+.2f"|format(s.profit_units) }}</td>
-      <td class="num">{{ s.count }}</td>
+      <td data-label="Agent"><span class="chip {{ source }}">{{ source }}</span></td>
+      <td class="num" data-label="Record">{{ s.record }}</td>
+      <td class="num {{ 'pos' if s.avg_clv > 0 else 'neg' if s.avg_clv < 0 else 'push' }}" data-label="Avg CLV">{{ "%+.4f"|format(s.avg_clv) }}</td>
+      <td class="num {{ 'pos' if s.profit_units > 0 else 'neg' if s.profit_units < 0 else 'push' }}" data-label="Units">{{ "%+.2f"|format(s.profit_units) }}</td>
+      <td class="num" data-label="Picks">{{ s.count }}</td>
     </tr>
     {% endfor %}
   </tbody>

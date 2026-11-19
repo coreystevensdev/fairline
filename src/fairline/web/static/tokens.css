@@ -17,7 +17,7 @@
 
   --text: #e8e4da;
   --text-muted: #8a94a3;
-  --text-faint: #5c6673;
+  --text-faint: #7a8697;  /* 5.12 on canvas, 4.73 on surface; #5c6673 was 3.24 and failed AA at 12px */
 
   --accent: #8b7cf6;
   --accent-soft: rgba(139, 124, 246, 0.14);

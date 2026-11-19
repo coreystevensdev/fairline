@@ -120,3 +120,63 @@ button.act.quiet:hover { background: var(--ink-raised); color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+
+/* Eight-column tables do not fit a phone. Below this width each row becomes a
+   stacked record: the header row is hidden and every cell carries its own label
+   from data-label, so nothing depends on column position. Measured before this
+   existed: 883px of content in a 390px viewport, 26 elements past the edge, and
+   the approve buttons entirely off screen. */
+@media (max-width: 760px) {
+  main { padding: var(--space-3) var(--space-2) var(--space-4); }
+
+  table, tbody, tr, td { display: block; width: 100%; }
+  thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  tr {
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    margin-bottom: var(--space-3);
+    padding: var(--space-2);
+    background: var(--ink-surface);
+  }
+  tr:hover td { background: none; }
+
+  td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-3);
+    border-bottom: 1px solid var(--hairline);
+    padding: var(--space-2) var(--space-1);
+    text-align: left;
+  }
+  td:last-child { border-bottom: none; }
+  td.num { text-align: right; }
+
+  td[data-label]::before {
+    content: attr(data-label);
+    color: var(--text-faint);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    flex: 0 0 auto;
+  }
+
+  /* the rationale is the one cell worth reading in full once it has the width */
+  .rationale { max-width: none; white-space: normal; overflow: visible; text-overflow: clip; }
+
+  header.site { flex-wrap: wrap; gap: var(--space-2); }
+  nav { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+  .api-key { width: 100%; }
+}
+
+.queue-msg {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--result-win);
+  background: var(--ink-surface);
+  color: var(--text);
+  font-size: 14px;
+}
+.queue-msg.bad { border-left-color: var(--result-loss); }
