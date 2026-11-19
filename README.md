@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![364 tests](https://img.shields.io/badge/tests-364-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![376 tests](https://img.shields.io/badge/tests-376-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Finds sports bets that are priced better than the professional market thinks they should be, and makes a human approve every one before it goes anywhere. NFL, NBA, MLB, NHL.
@@ -353,6 +353,10 @@ Three server-rendered pages, styled as a ledger: dark ink canvas, every figure i
 - `/record` is every settled pick with result, CLV, and units, plus the running totals. Nothing on it can be edited or backfilled.
 
 Read pages are public by design: a graded record behind a login is marketing, in the open it is evidence. Mutations still require a bearer key.
+
+Without an Odds API key there are no picks to show, so all three pages render empty. `python -m fairline seed-demo` writes a fixed set of settled picks and pending candidates for that case. The fixtures carry only the price taken and the price at close; CLV and units come from the same functions settlement and grading use, so the arithmetic on the record page is the real implementation rather than a table of chosen results. Three of the twelve losses beat the close, which is the reason this grades on CLV at all.
+
+The pages raise a sample-data banner for as long as those rows are present, with no configuration needed. `FAIRLINE_DEMO_DATA=true` keeps it up afterwards, for a deployment that seeded once and now takes real picks. The flag can only add the banner, never remove it: a seeded record served without a label is a performance claim that is not true, and that is what an unset variable would otherwise default to.
 
 ## Running a season
 

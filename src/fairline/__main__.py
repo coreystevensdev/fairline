@@ -384,6 +384,18 @@ async def _sim_report(threshold: float) -> None:
         print(f"{bucket}: count={s['count']} avg_clv={avg} profit_units={s['profit_units']:+.2f}")
 
 
+async def _seed_demo(reset: bool) -> None:
+    from fairline.db.session import get_session_factory
+    from fairline.seed import seed_demo
+
+    written = await seed_demo(get_session_factory(), reset=reset)
+    if written["picks"] == 0 and written["candidates"] == 0:
+        print("demo rows already present, nothing written")
+        return
+    print(f"wrote {written['picks']} picks and {written['candidates']} candidates")
+    print("the pages label these rows as sample data for as long as they are present")
+
+
 async def _create_user(email: str) -> None:
     from fairline.api.auth import issue_api_key
     from fairline.db.session import get_session_factory
@@ -427,6 +439,13 @@ def main() -> None:
         help="how many days back to fetch scores, max 3 (default 3)",
     )
     _add_sport_arg(grade)
+    seed = sub.add_parser(
+        "seed-demo",
+        help="fill the read pages with sample rows for a deployment with no Odds API key",
+    )
+    seed.add_argument(
+        "--reset", action="store_true", help="delete existing demo rows first"
+    )
     create_user = sub.add_parser(
         "create-user", help="create a user (or rotate their key) and print the API key once"
     )
@@ -554,6 +573,8 @@ def main() -> None:
         asyncio.run(_backfill_nba_players(args.season, args.proxy))
     elif args.command == "matchup":
         asyncio.run(_matchup(args.sport, args.markets, args.min_edge, args.max_events))
+    elif args.command == "seed-demo":
+        asyncio.run(_seed_demo(args.reset))
     elif args.command == "watch":
         asyncio.run(_watch(args.interval_seconds, args.window_hours, args.once, args.sport))
 

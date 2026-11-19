@@ -20,6 +20,12 @@
     <input class="key-field" id="api-key" type="password" placeholder="API key (for approvals)"
            autocomplete="off">
   </header>
+  {% if demo_data %}
+  <p class="demo-banner" role="note">
+    Sample data. These rows were seeded for the public demo, not taken against a live market, so
+    the figures show how the pipeline prices and grades a pick rather than a trading history.
+  </p>
+  {% endif %}
   <main>{% block content %}{% endblock %}</main>
   <script>
     const keyField = document.getElementById("api-key");

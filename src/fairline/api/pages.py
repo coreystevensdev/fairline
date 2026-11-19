@@ -8,6 +8,7 @@ localStorage via htmx.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -19,6 +20,31 @@ from fairline.db.session import get_session_factory
 _WEB = Path(__file__).resolve().parent.parent / "web"
 templates = Jinja2Templates(directory=str(_WEB / "templates"))
 router = APIRouter()
+
+
+async def _is_demo_data(factory) -> bool:
+    """Whether these pages are serving rows from `fairline seed-demo`.
+
+    A graded record is this product's claim, so a seeded one has to say so on
+    every page that shows it. The env var is an operator's sticky override: a
+    deployment that seeds and then takes real picks keeps saying so until
+    someone unsets it. The query is the floor under that, because the only
+    dangerous direction is a seeded record served with no label, and a flag
+    nobody remembered to set defaults to exactly that.
+    """
+    if os.getenv("FAIRLINE_DEMO_DATA", "").lower() == "true":
+        return True
+    if factory is None:
+        return False
+
+    from fairline.db.models import Pick
+    from fairline.seed import DEMO_USER_ID
+
+    async with factory() as session:
+        seeded = await session.execute(
+            select(Pick.id).where(Pick.user_id == DEMO_USER_ID).limit(1)
+        )
+        return seeded.scalar_one_or_none() is not None
 
 
 def _factory():
@@ -35,7 +61,7 @@ async def agents_page(request: Request):
     factory = _factory()
     report = await agent_report(factory) if factory else {}
     return templates.TemplateResponse(
-        request, "agents.html", {"page": "agents", "report": report}
+        request, "agents.html", {"page": "agents", "report": report, "demo_data": await _is_demo_data(factory)}
     )
 
 
@@ -60,7 +86,7 @@ async def queue_page(request: Request):
                 .all()
             )
     return templates.TemplateResponse(
-        request, "queue.html", {"page": "queue", "candidates": candidates}
+        request, "queue.html", {"page": "queue", "candidates": candidates, "demo_data": await _is_demo_data(factory)}
     )
 
 
@@ -91,5 +117,5 @@ async def record_page(request: Request):
         "units": sum(p.profit_units or 0.0 for p in picks),
     }
     return templates.TemplateResponse(
-        request, "record.html", {"page": "record", "picks": picks, "totals": totals}
+        request, "record.html", {"page": "record", "picks": picks, "totals": totals, "demo_data": await _is_demo_data(factory)}
     )
