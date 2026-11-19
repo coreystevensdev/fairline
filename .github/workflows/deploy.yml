@@ -39,7 +39,7 @@ jobs:
     # stop accepting a bare repo wildcard.
     environment:
       name: production
-      url: https://fairline.52-22-210-61.sslip.io/
+      url: https://fairline.coreystevens.dev/
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # workflow_run fires for any CI run matching the filter, and CI runs on
@@ -138,7 +138,7 @@ jobs:
             --memory-swap=768m \
             -e "DATABASE_URL=$DATABASE_URL" \
             -e "FAIRLINE_ENV=production" \
-            -e "SITE_URL=https://fairline.52-22-210-61.sslip.io" \
+            -e "SITE_URL=https://fairline.coreystevens.dev" \
             "$IMAGE"
 
           for i in $(seq 1 24); do
