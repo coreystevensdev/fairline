@@ -6,6 +6,8 @@
 
 Finds sports bets that are priced better than the professional market thinks they should be, and makes a human approve every one before it goes anywhere. NFL, NBA, MLB, NHL.
 
+The three read pages are open at **[fairline.52-22-210-61.sslip.io](https://fairline.52-22-210-61.sslip.io/)**, no signup. They are running on seeded sample data, which the pages say on every screen, because a graded betting record that is not real is a claim about performance.
+
 Every bookmaker builds a margin into its odds, called vig. Strip the vig out of a sharp book's line and you get that market's honest estimate of what will happen. Fairline does that to Pinnacle's lines via The Odds API, then has Claude surface the retail prices that beat it. A LangGraph `interrupt()` pauses the pipeline for approval before any bet slip is prepared, so nothing is ever placed on its own.
 
 Each pick is signed by the agent that produced it, and those agents are graded on closing line value: did the price beat where the market finished, rather than did the bet win. That is the harder standard, and the one that separates edge from luck.
