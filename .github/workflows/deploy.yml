@@ -123,6 +123,11 @@ jobs:
             | docker login --username AWS --password-stdin "$REGISTRY"
           docker pull "$IMAGE"
 
+          # Exported rather than passed as -e NAME=value: docker puts argv in the
+          # process table, so the value form shows the connection string to
+          # anything that can run ps on this box.
+          export DATABASE_URL
+
           docker stop fairline 2>/dev/null || true
           docker rm fairline 2>/dev/null || true
 
@@ -136,7 +141,7 @@ jobs:
             -p 127.0.0.1:8082:8000 \
             --memory=256m \
             --memory-swap=768m \
-            -e "DATABASE_URL=$DATABASE_URL" \
+            -e DATABASE_URL \
             -e "FAIRLINE_ENV=production" \
             -e "SITE_URL=https://fairline.coreystevens.dev" \
             "$IMAGE"
