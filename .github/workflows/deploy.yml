@@ -153,17 +153,23 @@ jobs:
             fi
             sleep 5
           done
-          echo "never answered /health within 120s; last 50 log lines:"
-          docker logs --tail 50 fairline
+          # Deliberately not echoed. SSM returns stdout to the workflow log,
+          # and a startup stack trace can carry the connection string with it.
+          echo "never answered /health within 120s. Logs stayed on the instance:"
+          echo "  aws ssm send-command --instance-ids \$INSTANCE_ID --document-name AWS-RunShellScript \"
+          echo "    --parameters 'commands=[\"docker logs --tail 80 fairline\"]'"
           exit 1
           SCRIPT
 
+          # Piped into bash rather than written to a path first. A file at a
+          # predictable name under /tmp, created by root and then executed by
+          # root, is a window another local account can step into.
           B64=$(base64 -w0 deploy-remote.sh)
           CMD=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "deploy fairline $IMAGE" \
-            --parameters "commands=[\"echo $B64 | base64 -d > /tmp/deploy-fairline.sh\",\"sudo bash /tmp/deploy-fairline.sh $IMAGE\"]" \
+            --parameters "commands=[\"echo $B64 | base64 -d | bash -s -- $IMAGE\"]" \
             --query Command.CommandId --output text)
           echo "SSM command: $CMD"
 
