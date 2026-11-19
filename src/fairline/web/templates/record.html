@@ -16,14 +16,14 @@
   <tbody>
     {% for p in picks %}
     <tr>
-      <td class="num">{{ p.approved_at.strftime("%b %d") }}</td>
-      <td><span class="chip {{ p.source }}">{{ p.source }}</span></td>
-      <td>{{ p.away_team }} @ {{ p.home_team }}</td>
-      <td>{{ p.selection }}</td>
-      <td class="num">{{ "%+d"|format(p.price) }}</td>
-      <td class="{{ 'pos' if p.result == 'win' else 'neg' if p.result == 'loss' else 'push' }}">{{ p.result }}</td>
-      <td class="num {{ 'pos' if p.clv and p.clv > 0 else 'neg' if p.clv and p.clv < 0 else 'push' }}">{{ "%+.4f"|format(p.clv) if p.clv is not none else "-" }}</td>
-      <td class="num">{{ "%+.2f"|format(p.profit_units) if p.profit_units is not none else "-" }}</td>
+      <td class="num" data-label="Approved">{{ p.approved_at.strftime("%b %d") }}</td>
+      <td data-label="Agent"><span class="chip {{ p.source }}">{{ p.source }}</span></td>
+      <td data-label="Game">{{ p.away_team }} @ {{ p.home_team }}</td>
+      <td data-label="Selection">{{ p.selection }}</td>
+      <td class="num" data-label="Price">{{ "%+d"|format(p.price) }}</td>
+      <td class="{{ 'pos' if p.result == 'win' else 'neg' if p.result == 'loss' else 'push' }}" data-label="Result">{{ p.result }}</td>
+      <td class="num {{ 'pos' if p.clv and p.clv > 0 else 'neg' if p.clv and p.clv < 0 else 'push' }}" data-label="CLV">{{ "%+.4f"|format(p.clv) if p.clv is not none else "-" }}</td>
+      <td class="num" data-label="Units">{{ "%+.2f"|format(p.profit_units) if p.profit_units is not none else "-" }}</td>
     </tr>
     {% endfor %}
   </tbody>

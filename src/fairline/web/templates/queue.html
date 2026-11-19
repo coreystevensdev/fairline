@@ -4,6 +4,7 @@
 <h1>Review queue</h1>
 <p class="subhead">Deterministic candidates awaiting a human. Approving needs your API key (top right); the pick then enters settlement and grading under its agent's record.</p>
 {% if candidates %}
+<p class="queue-msg" id="queue-msg" role="status" aria-live="polite" hidden></p>
 <table>
   <thead>
     <tr><th>Agent</th><th>Game</th><th>Selection</th><th>Book</th><th class="num">Price</th><th class="num">Edge</th><th>Why</th><th></th></tr>
@@ -11,20 +12,20 @@
   <tbody>
     {% for c in candidates %}
     <tr>
-      <td><span class="chip {{ c.source }}">{{ c.source }}</span></td>
-      <td>{{ c.away_team }} @ {{ c.home_team }}</td>
-      <td>{{ c.selection }}</td>
-      <td>{{ c.book }}</td>
-      <td class="num">{{ "%+d"|format(c.price) }}</td>
-      <td class="num pos">{{ "%+.3f"|format(c.edge_pct) }}</td>
-      <td class="rationale" title="{{ c.rationale }}">{{ c.rationale }}</td>
+      <td data-label="Agent"><span class="chip {{ c.source }}">{{ c.source }}</span></td>
+      <td data-label="Game">{{ c.away_team }} @ {{ c.home_team }}</td>
+      <td data-label="Selection">{{ c.selection }}</td>
+      <td data-label="Book">{{ c.book }}</td>
+      <td class="num" data-label="Price">{{ "%+d"|format(c.price) }}</td>
+      <td class="num pos" data-label="Edge">{{ "%+.3f"|format(c.edge_pct) }}</td>
+      <td class="rationale" data-label="Why" title="{{ c.rationale }}">{{ c.rationale }}</td>
       <td>
         <button class="act" hx-post="/api/steam/{{ c.id }}/approve"
                 hx-swap="none"
-                hx-on::after-request="if(event.detail.successful) this.closest('tr').remove()">approve</button>
+                hx-on::after-request="flQueueResult(event, this, 'Approved')">approve</button>
         <button class="act quiet" hx-post="/api/steam/{{ c.id }}/reject"
                 hx-swap="none"
-                hx-on::after-request="if(event.detail.successful) this.closest('tr').remove()">pass</button>
+                hx-on::after-request="flQueueResult(event, this, 'Passed')">pass</button>
       </td>
     </tr>
     {% endfor %}
@@ -33,4 +34,36 @@
 {% else %}
 <div class="empty">Nothing pending. Candidates arrive when the watcher flags steam or the matchup scan finds a lagging prop price.</div>
 {% endif %}
+<script>
+// Both buttons used to drop the row on success and do nothing otherwise, so an
+// expired or missing API key read as a click that never happened. Status codes
+// are named rather than echoed: 401 and 403 mean the key, not the pick.
+function flQueueResult(event, btn, verb) {
+  var msg = document.getElementById("queue-msg");
+  var status = event.detail.xhr ? event.detail.xhr.status : 0;
+  function say(text, ok) {
+    if (!msg) return;
+    msg.hidden = false;
+    msg.textContent = text;
+    msg.classList.toggle("bad", !ok);
+  }
+  if (event.detail.successful) {
+    var row = btn.closest("tr");
+    var sel = row ? row.querySelector('[data-label="Selection"]') : null;
+    say(verb + (sel ? ": " + sel.textContent.trim() : "") + ".", true);
+    if (row) row.remove();
+    if (!document.querySelector("tbody tr")) say("Queue is clear.", true);
+    return;
+  }
+  if (status === 401 || status === 403) {
+    say("That needs your API key. Paste it in the field at the top right and try again.", false);
+  } else if (status === 404) {
+    say("That candidate is gone, someone else may have actioned it. Reload the page.", false);
+  } else if (status === 0) {
+    say("Could not reach the server.", false);
+  } else {
+    say("The server answered " + status + ".", false);
+  }
+}
+</script>
 {% endblock %}
