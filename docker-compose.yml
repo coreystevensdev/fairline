@@ -28,6 +28,9 @@ services:
       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
       LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-false}
       LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-fairline}
+      # Keeps the sample-data banner up after the seeded rows are gone. The
+      # pages already raise it on their own while those rows are present.
+      FAIRLINE_DEMO_DATA: ${FAIRLINE_DEMO_DATA:-false}
       LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-https://api.smith.langchain.com}
       FAIRLINE_ENV: ${FAIRLINE_ENV:-}
       FAIRLINE_SIM_WEIGHT: ${FAIRLINE_SIM_WEIGHT:-0.25}

@@ -180,3 +180,16 @@ button.act.quiet:hover { background: var(--ink-raised); color: var(--text); }
   font-size: 14px;
 }
 .queue-msg.bad { border-left-color: var(--result-loss); }
+
+/* Shown whenever the rows came from seed-demo. A graded record is this
+   product's claim, so a seeded one says so above every page that shows it. */
+.demo-banner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--chip-steam);
+  background: var(--ink-surface);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
