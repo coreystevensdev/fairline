@@ -19,6 +19,16 @@ jobs:
           ANTHROPIC_API_KEY: test-key
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
 
+      - name: uv.lock still matches pyproject.toml
+        # The lock installs nothing; pip does, from pyproject.toml above. It
+        # exists so GitHub's dependency graph sees the whole transitive tree
+        # rather than only the declared deps, which here is 98 packages against
+        # 27. A lock nothing enforces drifts, and a drifted lock makes the scan
+        # precise and wrong, so this fails when the two disagree.
+        run: |
+          pip install --quiet uv
+          uv lock --check
+
       - name: README test count matches what pytest collects
         run: |
           n=$(pytest --collect-only -q | grep -oE '^[0-9]+ tests? collected' | grep -oE '^[0-9]+')
