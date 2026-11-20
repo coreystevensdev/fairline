@@ -146,10 +146,15 @@ Every pick is stamped with the agent that produced it (`source`), and the leader
 python -m fairline agents
 ```
 
+What the seeded fixtures actually grade to, so you can run the two commands above and compare:
+
 ```
-model: 12-9-1 avg_clv=+0.0041 units=+1.87 n=22
-steam: 4-2-0 avg_clv=+0.0119 units=+1.64 n=6
+matchup: 3-1-0 avg_clv=+0.0235 units=+1.84 n=4
+steam:   3-2-0 avg_clv=+0.0167 units=+0.77 n=5
+model:   1-1-1 avg_clv=+0.0061 units=-0.29 n=3
 ```
+
+Note the ordering: `model` is the only agent with negative units and still has positive CLV, which is the case the whole metric exists for. Twelve picks is far too few to tell you anything about the agents, and is only here so the page has something to render.
 
 Win rate is noisy and gameable; average CLV is the grade that matters, and it is the same standard for every agent. All four leagues flow through the same settlement and grading, so records are comparable across sports (`--sport all` on settle and grade covers every league in one cron entry, one API request per league).
 
@@ -357,7 +362,7 @@ Three server-rendered pages, styled as a ledger: dark ink canvas, every figure i
 
 Read pages are public by design: a graded record behind a login is marketing, in the open it is evidence. Mutations still require a bearer key.
 
-Without an Odds API key there are no picks to show, so all three pages render empty. `python -m fairline seed-demo` writes a fixed set of settled picks and pending candidates for that case. The fixtures carry only the price taken and the price at close; CLV and units come from the same functions settlement and grading use, so the arithmetic on the record page is the real implementation rather than a table of chosen results. Three of the twelve losses beat the close, which is the reason this grades on CLV at all.
+Without an Odds API key there are no picks to show, so all three pages render empty. `python -m fairline seed-demo` writes a fixed set of settled picks and pending candidates for that case. The fixtures carry only the price taken and the price at close; CLV and units come from the same functions settlement and grading use, so the arithmetic on the record page is the real implementation rather than a table of chosen results. The seeded set settles 7-4-1, and three of the four losses beat the close, which is the reason this grades on CLV at all.
 
 The pages raise a sample-data banner for as long as those rows are present, with no configuration needed. `FAIRLINE_DEMO_DATA=true` keeps it up afterwards, for a deployment that seeded once and now takes real picks. The flag can only add the banner, never remove it: a seeded record served without a label is a performance claim that is not true, and that is what an unset variable would otherwise default to.
 
