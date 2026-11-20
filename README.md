@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![376 tests](https://img.shields.io/badge/tests-376-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![382 tests](https://img.shields.io/badge/tests-382-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Finds sports bets that are priced better than the professional market thinks they should be, and makes a human approve every one before it goes anywhere. NFL, NBA, MLB, NHL.
@@ -74,6 +74,7 @@ flowchart TD
 | Auth | Bearer API keys, SHA-256 at rest | Identity derives from the key server-side, so ownership checks compare against a real principal instead of a caller-supplied user_id; no external auth dependency |
 | Database | PostgreSQL + SQLAlchemy | Pick history and CLV tracking; `PostgresSaver` for LangGraph checkpoints |
 | Payments | Stripe webhooks | Subscription lifecycle via `customer.subscription.created/deleted` events |
+| Spend guard | `rolling-cost-cap` | The model call is the only metered cost here. The cap gets asked what a call could cost before it is made, so a scheduled run that loses its exit condition stops at the budget rather than past it |
 | Testing | pytest + respx | respx mocks at the httpx transport layer; no network calls in CI |
 | Observability | LangSmith | Traces each graph run at node level; HITL pause and resume appear as two linked traces (`picks/...` then `approve/...`), making the two-phase architecture visible without reading code |
 
@@ -452,4 +453,7 @@ python -m eval --out eval/report.json
 28. **Position data comes from a season's current roster snapshot (`CommonTeamRoster`), not a per-game record.** A player who changed teams or position designation mid-season may have a stale bucket until the next backfill.
 29. **A player-name mismatch between the box-score feed and the roster feed leaves that player's position unresolved (`None`).** The `position_matchup` split is silently omitted for their picks rather than guessed.
 30. **Rest days are derived from consecutive game dates, not a field nba_api provides directly.**
+32. **The spend cap's ledger is in-process, so N replicas can spend N times the budget.** `generation_cap` is a module-level `CostCap` holding its history in memory. One container is one budget; two containers are two. Nothing persists it across restarts either, so a crash loop resets the month's spend to zero. The absolute per-call ceiling is what actually bounds the damage in those cases.
+33. **The pre-call estimate counts four characters per token.** Asking the API to count tokens properly costs a request of its own, on the path whose whole job is to avoid unnecessary requests. The estimate also assumes the model fills `max_tokens` when a typical answer uses about a quarter of that, so it reads high by design. That gap is why the rolling-median multiplier is 8 and not the 3 used elsewhere: measured on a real slate, a worst-case estimate judged against a median of real completions looks like a 4.5x anomaly every time, and at 3 the agent refuses from its sixth run on with nothing in the logs to explain why.
+
 31. **NFL's `position_matchup` split is bucketed by the player's own most-recently-recorded `PlayerGame.position`, not by which prop market is being bet.** A traditional RB used as a receiver on a given slate is still pooled with running backs, not wide receivers, since nflverse's own position label is what gets stored.

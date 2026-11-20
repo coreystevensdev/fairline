@@ -19,6 +19,7 @@ from datetime import datetime
 
 import anthropic
 
+from fairline import cost
 from fairline.clients.odds_api import RETAIL_BOOKS
 from fairline.state import (
     BookmakerOdds,
@@ -223,6 +224,18 @@ def _build_prompt(
     )
 
 
+def _call_model(prompt: str):
+    """Split out so the guard around it can be tested without a live key."""
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    return client.messages.create(
+        model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
+        max_tokens=cost.MAX_OUTPUT_TOKENS,
+        tools=[_SUBMIT_PICKS_TOOL],
+        tool_choice={"type": "any"},
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+
 async def pick_agent(state: FairlineState) -> dict:
     """Generate pick candidates using Claude. Returns picks to the state for HITL review."""
     games = state.get("games", [])
@@ -232,7 +245,6 @@ async def pick_agent(state: FairlineState) -> dict:
         logger.info("pick_agent: no games or fair lines -- skipping")
         return {"candidates": [], "error": None}
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
     prompt = _build_prompt(
         games,
         fair_lines,
@@ -243,13 +255,31 @@ async def pick_agent(state: FairlineState) -> dict:
         state.get("steam_signal"),
     )
 
-    resp = client.messages.create(
-        model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
-        max_tokens=4096,
-        tools=[_SUBMIT_PICKS_TOOL],
-        tool_choice={"type": "any"},
-        messages=[{"role": "user", "content": prompt}],
+    # Estimated, not probed with zero: the budget layer tests spend + cost, so a
+    # zero probe cannot refuse until the budget is already overspent.
+    verdict = cost.generation_cap.check(cost.worst_case(prompt))
+    if not verdict.allowed:
+        logger.warning("pick_agent: refused, cap tripped on %s (spent %.4f)",
+                       verdict.trip, verdict.monthly_spend)
+        return {
+            "candidates": [],
+            "error": (
+                "Monthly model budget is spent, so no picks were generated. "
+                "Research from this run is still in state."
+            ),
+        }
+
+    resp = _call_model(prompt)
+
+    # Reached for directly. A missing usage block should take the run down, not
+    # quietly skip the ledger write and leave the cap counting a budget nobody
+    # is spending from.
+    decision = cost.generation_cap.evaluate(
+        cost.call_cost(resp.usage.input_tokens, resp.usage.output_tokens)
     )
+    if not decision.allowed:
+        logger.warning("pick_agent: that call tripped %s at %.4f",
+                       decision.trip, decision.observed)
 
     tool_block = next((b for b in resp.content if b.type == "tool_use" and b.name == "submit_picks"), None)
     if not tool_block:
