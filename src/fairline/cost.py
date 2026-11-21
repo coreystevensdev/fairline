@@ -19,7 +19,7 @@ def build_cap(monthly_budget: float | None = None) -> CostCap:
     return CostCap(
         # 8 and not 3 because the pre-call estimate is a worst case and the
         # ledger holds actuals, and a terse completion makes that a 4.5x gap.
-        # See Known limitations 33.
+        # See the pre-call estimate entry in the README's Known limitations.
         multiplier=8.0,
         window=50,
         min_samples=5,

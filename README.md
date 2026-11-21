@@ -66,7 +66,7 @@ flowchart TD
 
 | Layer | Technology | Why |
 |---|---|---|
-| Agent orchestration | LangGraph 0.3+ | Stateful graph with first-class `interrupt()` for HITL; checkpointer is `MemorySaver`, so the pause itself does not survive a restart |
+| Agent orchestration | LangGraph 1.x | Stateful graph with first-class `interrupt()` for HITL; checkpointer is `MemorySaver`, so the pause itself does not survive a restart |
 | LLM | Anthropic Claude (forced tool call) | Forced tool use (`submit_picks`) guarantees structured output; no output parsing |
 | Odds data | The Odds API v4 | Single endpoint returns Pinnacle + 40 retail books in one call; 500 free req/month is enough for a daily picks run |
 | Sharp-line math | `american_to_prob` + `remove_vig` | Converting American odds to implied probability then normalizing removes the bookmaker overround in O(n) |
