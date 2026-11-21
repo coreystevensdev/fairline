@@ -27,6 +27,14 @@
   </p>
   {% endif %}
   <main>{% block content %}{% endblock %}</main>
+  <!-- Every other demo on this box links its own source; this one did not, which
+       made it the one page a reader could not get from to the code. -->
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/coreystevensdev/fairline">Source on GitHub</a>
+      &middot; LangGraph pipeline, no-vig fair pricing, human approval before any pick ships
+    </p>
+  </footer>
   <script>
     const keyField = document.getElementById("api-key");
     keyField.value = localStorage.getItem("fairline_key") || "";
