@@ -27,8 +27,10 @@ Topology:
 weather/injury/stats/signal run in parallel via LangGraph's Send() API,
 none of them depend on each other's output. The HITL interrupt uses
 LangGraph's interrupt() primitive. The graph is compiled with a
-checkpointer (MemorySaver for local dev; PostgresSaver for production) so
-the paused state survives across HTTP requests.
+checkpointer, which defaults to MemorySaver because no caller passes one
+and langgraph-checkpoint-postgres is not a dependency. That is enough for
+the pause to survive across HTTP requests in one process, and not enough
+for it to survive a restart.
 """
 
 from __future__ import annotations
@@ -108,7 +110,8 @@ def build_graph(client: httpx.AsyncClient, session_factory=None, checkpointer=No
 
     Pass a shared httpx.AsyncClient so nodes that make HTTP calls share a pool.
     Pass session_factory for validate_agent to write picks to the DB.
-    Pass a checkpointer (MemorySaver or PostgresSaver) for HITL persistence.
+    Pass a checkpointer for HITL persistence; defaults to MemorySaver. Durable
+    checkpoints would need langgraph-checkpoint-postgres, which is not installed.
     """
     g = StateGraph(FairlineState)
 

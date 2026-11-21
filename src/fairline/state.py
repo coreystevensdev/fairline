@@ -1,8 +1,9 @@
 """LangGraph state schema and Pydantic models for Fairline.
 
 All agent nodes operate on FairlineState. The HITL interrupt checkpoint
-lives between generate_picks and finalize_picks; the graph saves its state
-to PostgresSaver so the approval session survives server restarts.
+lives between pick_agent and validate_agent. The graph checkpoints to
+MemorySaver, so a pending approval does not survive a restart; the runs,
+picks and CLV rows do, because those are written to Postgres directly.
 """
 
 from __future__ import annotations
