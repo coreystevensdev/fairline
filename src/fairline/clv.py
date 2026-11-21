@@ -59,6 +59,15 @@ def closing_line_for_selection(game: GameSnapshot, market: str, selection: str) 
     return ClosingLine(price=matched.price, probability=fair[idx], book=book, point=matched.point)
 
 
+def compute_clv(closing_probability: float, entry_probability: float) -> float:
+    """Closing line value: the close against the price actually taken.
+
+    Deliberately not the model's blended estimate. Bet at -108 (51.9%) into a
+    52.2% close and that is +0.3% CLV whatever the model believed.
+    """
+    return closing_probability - entry_probability
+
+
 async def settle_closing_lines(
     games: list[GameSnapshot],
     session_factory,
@@ -107,7 +116,7 @@ async def settle_closing_lines(
             pick.closing_price = line.price
             pick.closing_point = line.point
             pick.closing_probability = line.probability
-            pick.clv = line.probability - american_to_prob(pick.price)
+            pick.clv = compute_clv(line.probability, american_to_prob(pick.price))
             settled += 1
             logger.info(
                 "settle: pick_id=%s closed at %d (%.4f), clv=%+.4f via %s",

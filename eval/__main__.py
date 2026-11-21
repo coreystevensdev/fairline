@@ -18,12 +18,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from fairline.clv import compute_clv
 from fairline.state import american_to_prob, remove_vig
 
 DATASET = Path(__file__).parent / "dataset.jsonl"
 
 
-# Math under test -- mirrors pick.py _compute_ev and state.py functions
+# EV still mirrors pick.py._compute_ev. CLV and the vig functions are imported
+# from production, so a change there fails the eval rather than passing it.
 
 
 def compute_ev(blended_prob: float, american_price: int) -> float:
@@ -32,10 +34,6 @@ def compute_ev(blended_prob: float, american_price: int) -> float:
     else:
         win_amount = 100 / abs(american_price)
     return blended_prob * win_amount - (1 - blended_prob) * 1.0
-
-
-def compute_clv(blended_probability: float, closing_probability: float) -> float:
-    return closing_probability - blended_probability
 
 
 def compute_edge(blended_prob: float, american_price: int) -> float:
@@ -147,7 +145,7 @@ def run_ev_calculation(case: dict) -> CaseResult:
 def run_clv_calculation(case: dict) -> CaseResult:
     inputs = case["inputs"]
     expected = case["expected"]
-    clv = compute_clv(inputs["blended_probability"], inputs["closing_probability"])
+    clv = compute_clv(inputs["closing_probability"], inputs["entry_probability"])
     passed = _near(clv, expected["clv"], expected["tolerance"])
     return CaseResult(
         case_id=case["id"],
