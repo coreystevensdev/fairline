@@ -18,7 +18,7 @@ Retail sports bettors lose because they bet off public lines that already carry 
 
 ## Solution
 
-The pipeline runs as a LangGraph StateGraph: fetch Pinnacle odds, strip vig to no-vig fair probabilities for each side, filter picks by a minimum edge threshold, then call Claude with a forced `submit_picks` tool to generate structured pick candidates. An `interrupt()` checkpoint pauses the graph for user approval before any bet slip is finalized. State persists via `PostgresSaver` so approval sessions survive server restarts. CLV is recorded post-settlement for every approved pick, building a backtestable track record.
+The pipeline runs as a LangGraph StateGraph: fetch Pinnacle odds, strip vig to no-vig fair probabilities for each side, filter picks by a minimum edge threshold, then call Claude with a forced `submit_picks` tool to generate structured pick candidates. An `interrupt()` checkpoint pauses the graph for user approval before any bet slip is finalized. Approved picks, run status and CLV persist to Postgres. The graph's own checkpoint does not: `build_graph` defaults to `MemorySaver`, so a pending approval is lost on restart (see Known Limitations). CLV is recorded post-settlement for every approved pick, building a backtestable track record.
 
 ---
 
@@ -66,13 +66,13 @@ flowchart TD
 
 | Layer | Technology | Why |
 |---|---|---|
-| Agent orchestration | LangGraph 0.3+ | Stateful graph with first-class `interrupt()` for HITL; `PostgresSaver` for durable checkpoints across restarts |
+| Agent orchestration | LangGraph 0.3+ | Stateful graph with first-class `interrupt()` for HITL; checkpointer is `MemorySaver`, so the pause itself does not survive a restart |
 | LLM | Anthropic Claude (forced tool call) | Forced tool use (`submit_picks`) guarantees structured output; no output parsing |
 | Odds data | The Odds API v4 | Single endpoint returns Pinnacle + 40 retail books in one call; 500 free req/month is enough for a daily picks run |
 | Sharp-line math | `american_to_prob` + `remove_vig` | Converting American odds to implied probability then normalizing removes the bookmaker overround in O(n) |
 | API | FastAPI | Async lifespan manages shared httpx client and graph instance |
 | Auth | Bearer API keys, SHA-256 at rest | Identity derives from the key server-side, so ownership checks compare against a real principal instead of a caller-supplied user_id; no external auth dependency |
-| Database | PostgreSQL + SQLAlchemy | Pick history and CLV tracking; `PostgresSaver` for LangGraph checkpoints |
+| Database | PostgreSQL + SQLAlchemy | Pick history, run status and CLV tracking. LangGraph checkpoints are not stored here |
 | Payments | Stripe webhooks | Subscription lifecycle via `customer.subscription.created/deleted` events |
 | Spend guard | `rolling-cost-cap` | The model call is the only metered cost here. The cap gets asked what a call could cost before it is made, so a scheduled run that loses its exit condition stops at the budget rather than past it |
 | Testing | pytest + respx | respx mocks at the httpx transport layer; no network calls in CI |
@@ -434,7 +434,7 @@ python -m eval --out eval/report.json
 4. **The clv number ignores point drift.** A spread bet at -3.5 that closes at -4.0 is compared by price only. The closing line is stored in `closing_point`, so the drift is queryable (`SELECT selection, closing_point FROM picks`), but it is not folded into the single `clv` float; converting a half point of NFL spread movement to probability requires a push-chart model that is out of scope.
 5. **Grading has a 3-day window.** The scores endpoint reaches back at most 3 days. A pick whose game finished more than 3 days before `fairline grade` runs stays ungraded permanently; run it at least twice a week during the season.
 6. **API keys are minimal.** One key per user, no scopes, no expiry, rotation only via `create-user` re-run. Lookups compare SHA-256 hashes through a unique index; there is no per-key rate limiting, so a leaked key is fully capable until rotated.
-7. **MemorySaver in tests.** Run status and ownership now live in the `runs` table and survive restarts, but graph state (candidates awaiting approval) still uses `MemorySaver` in local dev. Production requires `PostgresSaver` for the HITL pause itself to survive a restart; the switchover is a one-line change in `graph.py`.
+7. **MemorySaver everywhere, including production.** Run status and ownership live in the `runs` table and survive restarts. Graph state, meaning candidates awaiting approval, does not: `api/main.py` passes no checkpointer, so `graph.py` falls through to `MemorySaver` in every environment. `langgraph-checkpoint-postgres` is not a dependency, so `PostgresSaver` cannot currently be imported at all. Wiring it in is a one-line change in the caller plus that dependency.
 8. **The sim weight is static.** `FAIRLINE_SIM_WEIGHT` applies uniformly to every pick and only changes when an operator reads `sim-report` and decides to change it. A calibrated system would fit the weight from the disagreement-bucket CLV; here that judgment is deliberately left to the human.
 9. **BALLDONTLIE's free tier caps at 5 requests/minute.** Stats fetch failures, including rate-limit responses, degrade to skipping that team's stats for the run rather than blocking picks.
 10. **Player-level stats are fetched for NFL and MLB only.** NBA's and NHL's player endpoints require a player-ID roster lookup fairline doesn't have yet.
