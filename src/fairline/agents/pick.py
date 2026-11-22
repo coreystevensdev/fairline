@@ -4,7 +4,10 @@ Uses Claude with a forced `submit_picks` tool call to generate structured
 pick recommendations. Blends the sharp fair probability with any simulation
 adjustment and computes edge vs. the best available retail price.
 
-Claude sees: game metadata, fair lines, team context (if ResearchAgent ran).
+Claude sees: game metadata, fair lines, and whatever the research nodes left on
+the state: team_trends, game_weather, team_injuries, team_stats, steam_signal.
+Each is read with a default, so a node that found nothing costs a prompt section
+rather than the run.
 Claude never sees: raw API responses, user PII, or financial balances.
 """
 

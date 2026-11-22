@@ -8,11 +8,11 @@ from datetime import date, timedelta
 import pytest
 
 from fairline.db.models import NhlPlayerGame
+from fairline.matchup import describe_splits
 from fairline.nhl_matchup import (
     MIN_VS_GOALIE_SAMPLE,
     NHL_PROP_STAT_COLUMNS,
     compute_nhl_prop_splits,
-    describe_nhl_splits,
     nhl_matchup_probability,
 )
 
@@ -72,9 +72,9 @@ def test_nhl_matchup_probability_bounded_near_market():
     assert 0.49 <= prob <= 0.61 + 1e-9
 
 
-def test_describe_nhl_splits_lists_only_present_splits():
+def test_describe_splits_lists_only_present_nhl_splits():
     splits = {"home": (3, 5), "away": (0, 0)}
-    text = describe_nhl_splits(splits, "Over", 0.5)
+    text = describe_splits(splits, "Over", 0.5)
     assert "home 3-2 over 0.5" in text
     assert "away" not in text
 

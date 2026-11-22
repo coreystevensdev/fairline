@@ -10,11 +10,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from fairline.db.models import NbaPlayerGame
+from fairline.matchup import describe_splits
 from fairline.nba_matchup import (
     NBA_PROP_STAT_COLUMNS,
     _player_current_team,
     compute_nba_prop_splits,
-    describe_nba_splits,
     nba_matchup_probability,
 )
 
@@ -64,9 +64,9 @@ def test_nba_matchup_probability_bounded_near_market():
     assert 0.49 <= prob <= 0.61 + 1e-9
 
 
-def test_describe_nba_splits_lists_only_present_splits():
+def test_describe_splits_lists_only_present_nba_splits():
     splits = {"home": (3, 5), "away": (0, 0)}
-    text = describe_nba_splits(splits, "Over", 20.5)
+    text = describe_splits(splits, "Over", 20.5)
     assert "home 3-2 over 20.5" in text
     assert "away" not in text
 

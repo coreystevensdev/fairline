@@ -1,5 +1,13 @@
 # Matchup agent design
 
+**Status, November 2026.** The splits half shipped for four leagues, in
+`matchup.py` plus the MLB, NHL and NBA modules: code computes the splits,
+shrinks small samples toward the market line, and writes the rationale string.
+The LLM half did not. `anthropic` is imported in exactly one file,
+`agents/pick.py`, so nothing selects which splits matter for a given prop
+except the code that computes them, and `describe_splits` writes the rationale
+rather than a model. Read the LLM sections below as specification.
+
 The filter workflow this replaces: a bettor opens a props tool, picks a line,
 and slices the player's history by matchup similarity (vs top-10 defenses,
 home/away, last N, division games) before deciding. The matchup agent runs

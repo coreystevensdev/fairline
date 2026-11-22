@@ -1,8 +1,16 @@
 """OddsAgent node.
 
-Fetches live NFL odds, computes no-vig fair probabilities from the sharp-line
-reference (Pinnacle first; best available book if Pinnacle is absent), and
-stores both the raw game snapshots and derived fair lines on the state.
+Fetches live odds for whichever league the run asks for, computes no-vig fair
+probabilities from a sharp-line reference, and stores both the raw game
+snapshots and the derived fair lines on the state.
+
+Four leagues are supported and NFL is only the default, so a run that sets
+state["sport"] gets NBA, MLB or NHL from the same path.
+
+A game with none of the three sharp books is dropped, not priced against
+whatever book happens to be present. That is the point: the whole model rests
+on a sharp line being the market's best estimate, and a fair probability
+derived from a recreational book's vig is a worse number wearing the same name.
 """
 
 from __future__ import annotations
@@ -23,7 +31,8 @@ from fairline.state import (
 
 logger = logging.getLogger(__name__)
 
-# Prefer sharp books in order; fall back to any bookmaker present.
+# In order. No fallback past these three: best_sharp_book returns None and
+# odds_agent drops the game.
 _SHARP_PRIORITY = ["pinnacle", "betonlineag", "mybookieag"]
 
 

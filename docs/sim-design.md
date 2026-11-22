@@ -1,10 +1,16 @@
 # Simulation agent design
 
-The sim layer today blends caller-supplied probabilities into pick edge (see
-"Blending an external simulation" in the README). This document specifies the
-agent that replaces the caller as the source of those probabilities: a
-deterministic model computed in code, fed by public data, with the LLM kept
-out of the arithmetic.
+**Status, November 2026.** This shipped, partly. `sim_agent` computes NFL margin
+probabilities from stored results and fills only the game and market
+combinations the caller left empty, so a caller-supplied sim line still wins.
+Other sports pass through untouched, because their margin distributions need
+different families. The rest of this document is the specification, not a
+description of what runs.
+
+This document specifies an agent that replaces the caller as the source of sim
+probabilities: a deterministic model computed in code, fed by public data, with
+the LLM kept out of the arithmetic. For what the blend does with those
+probabilities once they exist, see "The simulation model" in the README.
 
 ## Principle
 
