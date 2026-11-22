@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
 import respx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from fairline.clients.odds_api import fetch_event_props
+from fairline.db.models import Base, Pick
 from fairline.props import find_prop_edges, prop_fair_lines
 from fairline.state import BookmakerOdds, GameSnapshot, MarketOdds, Outcome, american_to_prob
 
@@ -140,15 +143,8 @@ async def test_fetch_event_props_hits_event_endpoint(monkeypatch):
     assert outcome.description == "Patrick Mahomes"
 
 
-import pytest as _pytest
-from datetime import timedelta
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from fairline.db.models import Base, Pick
-
-
-@_pytest.fixture
+@pytest.fixture
 async def session_factory():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -202,8 +198,8 @@ async def test_prop_settle_computes_clv_on_exact_point(session_factory):
     over_raw = american_to_prob(-115)
     under_raw = american_to_prob(-105)
     fair_over = over_raw / (over_raw + under_raw)
-    assert pick.closing_probability == _pytest.approx(fair_over)
-    assert pick.clv == _pytest.approx(fair_over - american_to_prob(105))
+    assert pick.closing_probability == pytest.approx(fair_over)
+    assert pick.clv == pytest.approx(fair_over - american_to_prob(105))
 
 
 async def test_prop_settle_records_drift_without_clv(session_factory):

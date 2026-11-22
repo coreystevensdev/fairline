@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from fairline.db.models import Base, GameResult
 from fairline.sim import (
     HFA_POINTS,
-    SIGMA_MARGIN,
     build_ratings,
     cover_probability,
     parse_nflverse_games,

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -23,11 +23,11 @@ from sqlalchemy import desc, select
 from langgraph.errors import GraphInterrupt
 
 from fairline.api.auth import Principal, require_user
-from fairline.api.main import get_graph, get_http_client
+from fairline.api.main import get_graph
 from fairline.runs import claim_run, create_run, fetch_run, update_run
 from fairline.db.models import Pick, User
 from fairline.db.session import get_session_factory
-from fairline.state import ApprovedPick, PickCandidate, SimLine, FairlineState
+from fairline.state import SimLine, FairlineState
 
 logger = logging.getLogger(__name__)
 
