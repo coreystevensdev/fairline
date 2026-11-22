@@ -33,7 +33,7 @@ from sqlalchemy import select
 
 from fairline.clients.mlb_schedule_client import fetch_probable_pitchers, resolve_probable_pitcher
 from fairline.db.models import MlbPlayerGame
-from fairline.matchup import combine_splits
+from fairline.matchup import combine_splits, describe_splits
 from fairline.mlb_park_factors import game_park_bucket
 
 logger = logging.getLogger(__name__)
@@ -112,15 +112,6 @@ def mlb_matchup_probability(
     over_fair = market_fair if side == "Over" else 1 - market_fair
     over_prob = combine_splits(splits, base_rate=over_fair, market_fair=over_fair)
     return (over_prob if side == "Over" else 1 - over_prob), splits
-
-
-def describe_mlb_splits(splits: dict[str, tuple[int, int]], side: str, line: float) -> str:
-    parts = [
-        f"{name} {hits}-{attempts - hits} over {line:g}"
-        for name, (hits, attempts) in splits.items()
-        if attempts > 0
-    ]
-    return f"{side} angles: " + "; ".join(parts)
 
 
 async def create_mlb_matchup_candidates(session_factory, snapshot, min_edge: float = 0.03) -> int:
@@ -257,7 +248,7 @@ async def create_mlb_matchup_candidates(session_factory, snapshot, min_edge: flo
                             ev_pct=prob * win_amount - (1 - prob),
                             rationale=(
                                 f"fair {market_fair:.3f} -> matchup {prob:.3f}; "
-                                + describe_mlb_splits(splits, side, point)
+                                + describe_splits(splits, side, point)
                             ),
                             angles=",".join(
                                 name for name, (_, attempts) in splits.items() if attempts > 0

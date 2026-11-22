@@ -22,7 +22,7 @@ import logging
 from sqlalchemy import select
 
 from fairline.db.models import NbaPlayerGame
-from fairline.matchup import combine_splits
+from fairline.matchup import combine_splits, describe_splits
 
 logger = logging.getLogger(__name__)
 
@@ -117,15 +117,6 @@ async def _opponent_position_rate(
         return None
     hits = sum(1 for g in games if getattr(g, stat) > line)
     return hits, len(games)
-
-
-def describe_nba_splits(splits: dict[str, tuple[int, int]], side: str, line: float) -> str:
-    parts = [
-        f"{name} {hits}-{attempts - hits} over {line:g}"
-        for name, (hits, attempts) in splits.items()
-        if attempts > 0
-    ]
-    return f"{side} angles: " + "; ".join(parts)
 
 
 async def create_nba_matchup_candidates(session_factory, snapshot, min_edge: float = 0.03) -> int:
@@ -247,7 +238,7 @@ async def create_nba_matchup_candidates(session_factory, snapshot, min_edge: flo
                             ev_pct=prob * win_amount - (1 - prob),
                             rationale=(
                                 f"fair {market_fair:.3f} -> matchup {prob:.3f}; "
-                                + describe_nba_splits(splits, side, point)
+                                + describe_splits(splits, side, point)
                             ),
                             angles=",".join(
                                 name for name, (_, attempts) in splits.items() if attempts > 0

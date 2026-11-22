@@ -10,11 +10,11 @@ import pytest
 from sqlalchemy import select
 
 from fairline.db.models import MlbPlayerGame
+from fairline.matchup import describe_splits
 from fairline.mlb_matchup import (
     MIN_VS_PITCHER_SAMPLE,
     MLB_PROP_STAT_COLUMNS,
     compute_mlb_prop_splits,
-    describe_mlb_splits,
     mlb_matchup_probability,
 )
 
@@ -106,11 +106,11 @@ def test_mlb_matchup_probability_bounded_near_market():
     assert 0.49 <= prob <= 0.61 + 1e-9
 
 
-def test_describe_mlb_splits_lists_only_present_splits():
+def test_describe_splits_lists_only_present_mlb_splits():
     splits = {"night": (3, 5), "day": (0, 0)}
-    text = describe_mlb_splits(splits, "Over", 0.5)
+    text = describe_splits(splits, "Over", 0.5)
     assert "night 3-2 over 0.5" in text
-    assert "day" not in text  # zero-attempt splits are excluded, same as NFL's describe_splits
+    assert "day" not in text  # zero-attempt splits are excluded
 
 
 def test_player_current_team_resolves_most_recent_game_date():

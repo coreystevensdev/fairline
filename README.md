@@ -58,7 +58,7 @@ flowchart TD
 | NHL official API | Per-game NHL skater stats (schedule + boxscore) for the matchup splits engine | None (official, unauthenticated) |
 | nba_api (stats.nba.com) | Per-game NBA player stats (bulk `LeagueGameLog`) for the matchup splits engine | None (unofficial, unauthenticated); stats.nba.com blocks most cloud/datacenter IPs, see below |
 | Anthropic Claude | Pick generation with forced `submit_picks` tool call | `ANTHROPIC_API_KEY` |
-| Stripe | Subscription billing (Pro tier) | `STRIPE_SECRET_KEY` |
+| Stripe | Subscription lifecycle webhooks, which set `is_pro` (see Known Limitations) | `STRIPE_WEBHOOK_SECRET` |
 
 ---
 
@@ -292,7 +292,7 @@ Approval is the same HITL principle as picks runs, just without the graph: no Cl
 
 ```bash
 cp .env.example .env
-# fill in ANTHROPIC_API_KEY, ODDS_API_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
+# fill in ANTHROPIC_API_KEY, ODDS_API_KEY, BALLDONTLIE_API_KEY
 docker compose up
 ```
 

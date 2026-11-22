@@ -57,9 +57,13 @@ from fairline.trends import trends_agent
 async def _hitl_review(state: FairlineState) -> dict:
     """HITL checkpoint: pause graph, surface candidates to the user for approval.
 
-    The API layer calls graph.invoke({...}, config={"thread_id": ...}) to start
-    the run, which pauses here. The client resumes with approved_picks injected
-    via graph.invoke(Command(resume={"approved_picks": [...]}), config=...).
+    Both calls take config={"configurable": {"thread_id": run_id}}; thread_id at
+    the top level is silently not a thread id and the resume finds no state.
+
+    interrupt() hands back the approved pick_ids as a bare list, so resume is
+    Command(resume=["pick-1", "pick-2"]) and not a dict keyed on approved_picks.
+    Ids that do not match a surfaced candidate are dropped rather than raising,
+    which is what makes a stale client safe rather than fatal.
     """
     candidates = state.get("candidates", [])
     if not candidates:
