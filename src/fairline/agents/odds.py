@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 
 import httpx
 
-from fairline.clients.odds_api import SHARP_BOOKS, fetch_odds
+from fairline.clients.odds_api import fetch_odds
 from fairline.state import (
     FairLine,
     GameSnapshot,

@@ -777,7 +777,6 @@ def test_position_from_games_returns_none_when_unresolved():
 
 
 async def test_team_home_surface_reads_most_recent_home_game():
-    from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from fairline.db.models import Base

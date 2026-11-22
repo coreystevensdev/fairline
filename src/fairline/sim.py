@@ -367,14 +367,16 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
             )
             sigma = model["sigma_margin"]
             h2h_prob = _phi(expected / sigma)
-            cover = lambda point: _phi((expected + point) / sigma)
+            def cover(point):
+                return _phi((expected + point) / sigma)
             exp_total = expected_total(rates, league_avg, game.home_team, game.away_team)
             wind = (game_weather.get(game.game_id) or {}).get("wind_mph")
             if wind is not None:
                 from fairline.weather import wind_total_adjustment
 
                 exp_total += wind_total_adjustment(wind)
-            over = lambda line: over_probability(exp_total, line, model["sigma_total"])
+            def over(line):
+                return over_probability(exp_total, line, model["sigma_total"])
         else:
             zero = {"off": 0.0, "def": 0.0}
             h = rates.get(game.home_team, zero)
@@ -390,8 +392,10 @@ async def sim_agent(state: FairlineState, session_factory=None) -> dict:
                 + rest_lambda_adjustment(sport, away_ctx) + away_inj,
             )
             h2h_prob = poisson_win_probability(lam_home, lam_away)
-            cover = lambda point: poisson_cover_probability(lam_home, lam_away, point)
-            over = lambda line: poisson_over_probability(lam_home + lam_away, line)
+            def cover(point):
+                return poisson_cover_probability(lam_home, lam_away, point)
+            def over(line):
+                return poisson_over_probability(lam_home + lam_away, line)
 
         if (game.home_team, game.away_team, "h2h") not in covered:
             model_lines.append(

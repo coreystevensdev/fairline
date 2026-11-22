@@ -10,19 +10,15 @@ Claude never sees: raw API responses, user PII, or financial balances.
 
 from __future__ import annotations
 
-import json
 import logging
-import math
 import os
 import uuid
-from datetime import datetime
 
 import anthropic
 
 from fairline import cost
 from fairline.clients.odds_api import RETAIL_BOOKS
 from fairline.state import (
-    BookmakerOdds,
     FairLine,
     GameSnapshot,
     PickCandidate,

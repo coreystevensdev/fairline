@@ -19,6 +19,11 @@ jobs:
       - run: |
           pip install --quiet uv
           uv sync --locked --extra dev
+      # 23 errors had accumulated with no lint step, including ten unused
+      # imports and four named lambdas in sim.py, the quant core.
+      - name: Lint
+        run: uv run --frozen ruff check --select F,E4,E7,E9 src/ tests/
+
       - run: uv run --frozen pytest -q
         env:
           ODDS_API_KEY: test-key

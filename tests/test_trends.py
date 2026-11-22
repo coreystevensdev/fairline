@@ -158,7 +158,7 @@ async def test_record_skips_incomplete_games(session_factory):
 
 
 async def test_trends_agent_attaches_records_for_slate_teams(session_factory):
-    from fairline.state import BookmakerOdds, GameSnapshot
+    from fairline.state import GameSnapshot
     from fairline.trends import trends_agent
 
     async with session_factory() as session:
