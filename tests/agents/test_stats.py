@@ -40,16 +40,13 @@ def set_api_key(monkeypatch):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_stats_agent_fetches_team_and_player_stats_for_nfl():
+async def test_stats_agent_fetches_team_stats_for_nfl():
     respx.get(f"{_BASE}/nfl/v1/teams").mock(return_value=httpx.Response(200, json=_TEAMS))
     respx.get(f"{_BASE}/nfl/v1/team_season_stats").mock(
         side_effect=lambda request: httpx.Response(
             200,
             json={"data": [{"points": 420 if "team_ids%5B%5D=1" in str(request.url) else 310}]},
         )
-    )
-    respx.get(f"{_BASE}/nfl/v1/season_stats").mock(
-        return_value=httpx.Response(200, json={"data": [{"player": {"id": 9}, "passing_yards": 4100}]})
     )
     state = {"sport": "americanfootball_nfl", "games": [_game()]}
 
@@ -58,7 +55,6 @@ async def test_stats_agent_fetches_team_and_player_stats_for_nfl():
 
     assert "Kansas City Chiefs" in out["team_stats"]
     assert "Las Vegas Raiders" in out["team_stats"]
-    assert out["player_stats"]["Kansas City Chiefs"] == [{"player": {"id": 9}, "passing_yards": 4100}]
 
 
 @pytest.mark.asyncio
@@ -66,14 +62,14 @@ async def test_stats_agent_skips_unsupported_sport():
     state = {"sport": "baseball_mlb_playoffs", "games": [_game(sport="baseball_mlb_playoffs")]}
     async with httpx.AsyncClient() as client:
         out = await stats_agent(state, client=client)
-    assert out == {"team_stats": {}, "player_stats": {}}
+    assert out == {"team_stats": {}}
 
 
 @pytest.mark.asyncio
 async def test_stats_agent_returns_empty_with_no_games():
     async with httpx.AsyncClient() as client:
         out = await stats_agent({"sport": "americanfootball_nfl", "games": []}, client=client)
-    assert out == {"team_stats": {}, "player_stats": {}}
+    assert out == {"team_stats": {}}
 
 
 @pytest.mark.asyncio
@@ -83,7 +79,7 @@ async def test_stats_agent_survives_teams_lookup_failure():
     state = {"sport": "americanfootball_nfl", "games": [_game()]}
     async with httpx.AsyncClient() as client:
         out = await stats_agent(state, client=client)
-    assert out == {"team_stats": {}, "player_stats": {}}
+    assert out == {"team_stats": {}}
 
 
 @pytest.mark.asyncio

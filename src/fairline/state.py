@@ -161,7 +161,6 @@ class FairlineState(TypedDict):
     team_stats: dict
 
     # StatsAgent output: team -> list of player season stat dicts (NFL/MLB only)
-    player_stats: dict
 
     # SignalAgent output: game_id -> list of formatted steam-move event strings
     steam_signal: dict

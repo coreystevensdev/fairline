@@ -1,5 +1,4 @@
-"""Season stats context via BALLDONTLIE, team-level for all four sports and
-player-level for NFL/MLB (see PLAYER_STATS_SUPPORTED in the client module).
+"""Team-level season stats context via BALLDONTLIE, for all four sports.
 
 BALLDONTLIE's team IDs are internal to that API and unrelated to the
 team-name strings on GameSnapshot, so every sport's fetch starts by
@@ -18,9 +17,7 @@ from datetime import datetime, timezone
 import httpx
 
 from fairline.clients.balldontlie import (
-    PLAYER_STATS_SUPPORTED,
     SPORT_PATH,
-    fetch_player_season_stats,
     fetch_team_season_stats,
     fetch_teams,
     resolve_team_id,
@@ -45,7 +42,7 @@ async def stats_agent(state: FairlineState, client: httpx.AsyncClient) -> dict:
     games = state.get("games", [])
     sport = state.get("sport", "americanfootball_nfl")
     if not games or sport not in SPORT_PATH:
-        return {"team_stats": {}, "player_stats": {}}
+        return {"team_stats": {}}
 
     bdl_sport = SPORT_PATH[sport]
     season = _current_season(sport)
@@ -55,10 +52,9 @@ async def stats_agent(state: FairlineState, client: httpx.AsyncClient) -> dict:
         teams = await fetch_teams(client, bdl_sport)
     except (httpx.HTTPError, RuntimeError) as exc:
         logger.warning("stats_agent: teams lookup failed for %s: %s", sport, exc)
-        return {"team_stats": {}, "player_stats": {}}
+        return {"team_stats": {}}
 
     team_stats: dict = {}
-    player_stats: dict = {}
     for name in team_names:
         team_id = resolve_team_id(teams, name)
         if team_id is None:
@@ -73,17 +69,7 @@ async def stats_agent(state: FairlineState, client: httpx.AsyncClient) -> dict:
         if stats:
             team_stats[name] = stats
 
-        if bdl_sport in PLAYER_STATS_SUPPORTED:
-            try:
-                players = await fetch_player_season_stats(client, bdl_sport, team_id, season)
-            except (httpx.HTTPError, RuntimeError) as exc:
-                logger.warning("stats_agent: player stats fetch failed for %s: %s", name, exc)
-                players = []
-            if players:
-                player_stats[name] = players
-
     logger.info(
-        "stats_agent: team stats for %d of %d teams, player stats for %d teams",
-        len(team_stats), len(team_names), len(player_stats),
+        "stats_agent: team stats for %d of %d teams", len(team_stats), len(team_names)
     )
-    return {"team_stats": team_stats, "player_stats": player_stats}
+    return {"team_stats": team_stats}
