@@ -132,5 +132,4 @@ def test_fairline_state_has_stats_and_signal_fields():
 
     annotations = FairlineState.__annotations__
     assert "team_stats" in annotations
-    assert "player_stats" in annotations
     assert "steam_signal" in annotations

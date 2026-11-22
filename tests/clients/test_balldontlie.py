@@ -12,7 +12,6 @@ import respx
 
 from fairline.clients.balldontlie import (
     SPORT_PATH,
-    fetch_player_season_stats,
     fetch_team_season_stats,
     fetch_teams,
     resolve_team_id,
@@ -132,22 +131,8 @@ async def test_fetch_team_season_stats_empty_response_returns_none():
     assert stats is None
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_fetch_player_season_stats_nfl():
-    respx.get(f"{_BASE}/nfl/v1/season_stats").mock(
-        return_value=httpx.Response(200, json={"data": [{"player": {"id": 9}, "passing_yards": 4100}]})
-    )
-    async with httpx.AsyncClient() as client:
-        players = await fetch_player_season_stats(client, "nfl", team_id=1, season=2025)
-    assert players == [{"player": {"id": 9}, "passing_yards": 4100}]
 
 
-@pytest.mark.asyncio
-async def test_fetch_player_season_stats_unsupported_sport_returns_empty():
-    async with httpx.AsyncClient() as client:
-        players = await fetch_player_season_stats(client, "nba", team_id=1, season=2025)
-    assert players == []
 
 
 @pytest.mark.asyncio

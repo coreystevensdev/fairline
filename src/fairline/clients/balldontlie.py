@@ -33,7 +33,6 @@ SPORT_PATH = {
 # NBA's and NHL's player endpoints don't accept a team_id filter; NBA wants
 # player_ids, NHL is single-player-by-path only. Roster resolution to get
 # those player IDs is separate future work, not this feature.
-PLAYER_STATS_SUPPORTED = {"nfl", "mlb"}
 
 
 def _api_key() -> str:
@@ -98,12 +97,3 @@ async def fetch_team_season_stats(
     return rows[0] if rows else None
 
 
-async def fetch_player_season_stats(
-    client: httpx.AsyncClient, sport: str, team_id: int, season: int
-) -> list[dict]:
-    """Player season stats for every player on one team. NFL and MLB only."""
-    if sport not in PLAYER_STATS_SUPPORTED:
-        return []
-    path = "/nfl/v1/season_stats" if sport == "nfl" else "/mlb/v1/season_stats"
-    payload = await _get(client, path, {"team_id": team_id, "season": season})
-    return payload.get("data") or []
