@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, select
 
 from fairline.db.session import get_session_factory
+from fairline.seed import DEMO_USER_ID
 
 _WEB = Path(__file__).resolve().parent.parent / "web"
 templates = Jinja2Templates(directory=str(_WEB / "templates"))
@@ -38,7 +39,6 @@ async def _is_demo_data(factory) -> bool:
         return False
 
     from fairline.db.models import Pick
-    from fairline.seed import DEMO_USER_ID
 
     async with factory() as session:
         seeded = await session.execute(
@@ -54,12 +54,25 @@ def _factory():
         return None
 
 
+# The public pages show one operator's record, not everyone's. The schema and
+# the authed API are already multi-tenant (routes.py filters Pick.user_id ==
+# caller), so the unscoped page queries were the odd ones out. With Stripe
+# subscriptions in this repo, the second paying user's selections, prices and
+# results would have been readable by any anonymous visitor at /record. Only the
+# seeded demo user has rows today, which is what kept it latent rather than
+# visible, and latent is not a reason to leave it.
+#
+# A setting rather than a literal so a real operator can publish their own
+# record instead of the demo's.
+PUBLIC_RECORD_USER_ID = os.environ.get("FAIRLINE_PUBLIC_RECORD_USER_ID", DEMO_USER_ID)
+
+
 @router.get("/", include_in_schema=False)
 async def agents_page(request: Request):
     from fairline.clv import agent_report
 
     factory = _factory()
-    report = await agent_report(factory) if factory else {}
+    report = await agent_report(factory, user_id=PUBLIC_RECORD_USER_ID) if factory else {}
     return templates.TemplateResponse(
         request, "agents.html", {"page": "agents", "report": report, "demo_data": await _is_demo_data(factory)}
     )
@@ -103,6 +116,7 @@ async def record_page(request: Request):
                     await session.execute(
                         select(Pick)
                         .where(Pick.result.is_not(None))
+                        .where(Pick.user_id == PUBLIC_RECORD_USER_ID)
                         .order_by(desc(Pick.approved_at))
                         .limit(200)
                     )

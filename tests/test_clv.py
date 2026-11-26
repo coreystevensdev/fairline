@@ -340,3 +340,23 @@ async def test_agent_report_buckets_by_source(session_factory):
     assert report["model"]["record"] == "1-1-0"
     assert report["steam"]["count"] == 1
     assert report["steam"]["profit_units"] == pytest.approx(0.91)
+
+
+async def test_agent_report_scopes_to_one_user_when_asked(session_factory):
+    """The public pages pass a scope; the CLI report does not. Without this the
+    leaderboard on an unauthenticated page aggregated every user's picks, which
+    is a leak the moment a second user exists."""
+    from fairline.clv import agent_report
+
+    async with session_factory() as session:
+        session.add(_pick(id="mine", user_id="operator", source="model", clv=0.02, result="win", profit_units=0.9))
+        session.add(_pick(id="theirs", user_id="someone-else", source="model", clv=0.05, result="win", profit_units=1.0))
+        await session.commit()
+
+    scoped = await agent_report(session_factory, user_id="operator")
+    assert scoped["model"]["count"] == 1
+    assert scoped["model"]["avg_clv"] == pytest.approx(0.02)
+
+    # default stays every user, which is what the operator's CLI report wants
+    everyone = await agent_report(session_factory)
+    assert everyone["model"]["count"] == 2

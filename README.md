@@ -1,7 +1,7 @@
 # Fairline
 
 [![CI](https://github.com/coreystevensdev/fairline/actions/workflows/ci.yml/badge.svg)](https://github.com/coreystevensdev/fairline/actions)
-[![380 tests](https://img.shields.io/badge/tests-380-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
+[![383 tests](https://img.shields.io/badge/tests-383-brightgreen)](https://github.com/coreystevensdev/fairline/actions)
 [![18-case eval](https://img.shields.io/badge/eval-18%20cases-blue)](eval/dataset.jsonl)
 
 Finds sports bets that are priced better than the professional market thinks they should be, and makes a human approve every one before it goes anywhere. NFL, NBA, MLB, NHL.

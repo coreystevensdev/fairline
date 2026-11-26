@@ -357,14 +357,35 @@ async def approve_steam_candidate(session_factory, candidate_id: str, user_id: s
     from datetime import timezone as _tz
 
     from sqlalchemy import select as sa_select
+    from sqlalchemy import update as sa_update
 
     from fairline.db.models import Pick, SteamCandidate
 
     async with session_factory() as session:
+        # Claim the candidate before writing anything. Reading the status and
+        # then setting it left a window two concurrent approves both passed, and
+        # /queue does not disable its buttons, so a double-click wrote two Picks
+        # for one candidate. Both then settle and grade, and the duplicate lands
+        # in the avg CLV and units /record prints as the product's claim.
+        #
+        # Same shape as claim_run in runs.py: a conditional UPDATE whose rowcount
+        # is the lock. Nothing here needs a row lock on top of it.
+        claimed = await session.execute(
+            sa_update(SteamCandidate)
+            .where(SteamCandidate.id == candidate_id, SteamCandidate.status == "pending")
+            .values(status="approved")
+        )
+        # No rollback on either loser path. The UPDATE matched nothing, so there
+        # is nothing to undo, and exiting the context manager discards the
+        # session anyway. An explicit rollback here also clobbers the winner
+        # wherever the two share a connection, which is what the in-memory
+        # SQLite the tests use does.
+        if claimed.rowcount != 1:
+            return None
         cand = (
             await session.execute(sa_select(SteamCandidate).where(SteamCandidate.id == candidate_id))
         ).scalar_one_or_none()
-        if cand is None or cand.status != "pending":
+        if cand is None:
             return None
         pick_id = str(uuid.uuid4())
         session.add(
@@ -393,7 +414,6 @@ async def approve_steam_candidate(session_factory, candidate_id: str, user_id: s
                 approved_at=datetime.now(_tz.utc),
             )
         )
-        cand.status = "approved"
         await session.commit()
         return pick_id
 

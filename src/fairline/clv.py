@@ -266,20 +266,27 @@ async def sim_clv_report(session_factory, disagree_threshold: float = 0.02) -> d
     return {name: _summary(picks) for name, picks in buckets.items()}
 
 
-async def agent_report(session_factory) -> dict:
+async def agent_report(session_factory, user_id: str | None = None) -> dict:
     """Per-agent leaderboard over settled picks: count, avg CLV, units, record.
 
     Every agent's picks flow through the same settlement and grading, so the
     comparison is apples to apples; source is the byline, CLV is the grade.
+
+    user_id=None aggregates every user, which is what the operator's own CLI
+    report wants. The public pages pass one, because a leaderboard built from
+    every user's picks on an unauthenticated page is a data leak waiting for a
+    second user.
     """
     # In-memory aggregation; fine at portfolio scale, would need a SQL GROUP BY
     # well before production pick volume.
     async with session_factory() as session:
-        rows = (
-            (await session.execute(select(Pick).where(Pick.clv.is_not(None))))
-            .scalars()
-            .all()
-        )
+        q = select(Pick).where(Pick.clv.is_not(None))
+        if user_id is not None:
+            # Default stays every user so the CLI report and settlement paths
+            # are unchanged. The public pages pass a scope; see
+            # PUBLIC_RECORD_USER_ID in api/pages.py for why.
+            q = q.where(Pick.user_id == user_id)
+        rows = (await session.execute(q)).scalars().all()
 
     buckets: dict[str, list] = {}
     for pick in rows:
