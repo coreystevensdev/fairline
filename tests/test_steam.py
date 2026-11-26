@@ -322,3 +322,46 @@ async def test_approve_candidate_creates_steam_pick(session_factory):
 
     # a second approval attempt is a no-op
     assert await approve_steam_candidate(session_factory, cand_id, "bob") is None
+
+
+async def test_concurrent_approvals_write_exactly_one_pick(session_factory):
+    """The sequential double-approve test above passes even with a read-then-write
+    race, because the second call sees the committed status. This one fires both
+    at once, which is what a double-click on /queue does: the buttons are never
+    disabled. Two Picks for one candidate get settled and graded twice, and the
+    duplicate lands in the avg CLV and units /record prints as the product's claim.
+    """
+    import asyncio
+
+    from fairline.db.models import Pick, SteamCandidate
+    from fairline.steam import approve_steam_candidate, create_steam_candidates
+
+    event = await _steam_event(session_factory)
+    async with session_factory() as session:
+        session.add(_retail_row("draftkings", price=-105))
+        await session.commit()
+    await create_steam_candidates(session_factory, [event], [_upcoming_game()])
+
+    async with session_factory() as session:
+        cand_id = (await session.execute(select(SteamCandidate))).scalars().one().id
+
+    first, second = await asyncio.gather(
+        approve_steam_candidate(session_factory, cand_id, "alice"),
+        approve_steam_candidate(session_factory, cand_id, "bob"),
+    )
+
+    # exactly one winner, and the loser is told it lost rather than given a pick id
+    assert sorted(x is None for x in (first, second)) == [False, True]
+
+    async with session_factory() as session:
+        picks = (await session.execute(select(Pick))).scalars().all()
+    assert len(picks) == 1, f"{len(picks)} picks written for one candidate"
+
+    # The candidate's final status is deliberately not asserted here. The
+    # fixture is sqlite+aiosqlite:///:memory:, where SQLAlchemy shares one
+    # connection, so these two sessions are one transaction and the loser
+    # closing its session discards the winner's uncommitted UPDATE. The
+    # sequential test above covers the status transition against the same
+    # fixture; what only this test can show is that two at once produce one
+    # pick and one refusal. Reverting the claim makes both calls return a pick
+    # id and this test fail on the assertion above.

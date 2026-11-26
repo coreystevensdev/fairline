@@ -105,3 +105,43 @@ def test_a_clean_deployment_makes_no_sample_data_claim(client, monkeypatch):
     monkeypatch.delenv("FAIRLINE_DEMO_DATA", raising=False)
 
     assert "demo-banner" not in client.get("/record").text
+
+
+def test_record_page_shows_only_the_public_operator(serving_demo_rows, seeded_db, monkeypatch):
+    """The schema and the authed API are multi-tenant; these pages are not
+    authenticated. Before scoping, /record selected every settled Pick and the
+    leaderboard aggregated every user's, so with Stripe subscriptions in the
+    repo the second paying user's selections became readable by any visitor.
+    Only the demo user had rows, which is what kept it latent."""
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from sqlalchemy import select
+
+    from fairline.db.models import Pick
+    from fairline.seed import DEMO_USER_ID
+
+    factory = async_sessionmaker(create_async_engine(seeded_db), expire_on_commit=False)
+
+    async def add_someone_elses_settled_pick():
+        async with factory() as session:
+            demo = (await session.execute(select(Pick).where(Pick.user_id == DEMO_USER_ID))).scalars().first()
+            assert demo is not None, "fixture should have seeded the demo operator's picks"
+            clone = Pick(
+                **{
+                    c.name: getattr(demo, c.name)
+                    for c in Pick.__table__.columns
+                    if c.name not in {"id", "user_id", "selection"}
+                },
+                id="other-user-pick",
+                user_id="someone-else",
+                selection="OTHER USER SELECTION",
+            )
+            session.add(clone)
+            await session.commit()
+
+    asyncio.run(add_someone_elses_settled_pick())
+
+    body = serving_demo_rows.get("/record").text
+    assert "OTHER USER SELECTION" not in body, "another user's pick is readable on a public page"
